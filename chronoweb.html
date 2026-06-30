@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chrono-Web</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1217; --panel:#161c24; --panel2:#1d2530; --line:#2a3340;
+    --ink:#e8edf3; --muted:#94a3b4; --faint:#5d6b7c;
+    --verified:#4f9d69; --partial:#d99a2b; --falsified:#e0533d;
+    --notfound:#7c8694; --otherwise:#c77b3b; --unverifiable:#5b7fa6; --open:#465060;
+    --warranted:#4f9d69; --weak:#d99a2b; --unwarranted:#e0533d; --nonseq:#9e2f24;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  #app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  header{padding:13px 20px 9px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#131922,#0e1217)}
+  header h1{margin:0;font-size:19px;letter-spacing:.3px}
+  header h1 .dot{color:var(--falsified)}
+  header p{margin:3px 0 0;font-size:12px;color:var(--muted)}
+  #main{flex:1;display:flex;min-height:0}
+  #stage{flex:1;position:relative;min-width:0}
+  svg{width:100%;height:100%;display:block;cursor:grab}
+  svg:active{cursor:grabbing}
+  #controls{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:8px;z-index:5;max-width:236px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+    box-shadow:0 6px 22px rgba(0,0,0,.35)}
+  .card h3{margin:0 0 7px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:700}
+  .card h3 span{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
+  .chip{display:flex;align-items:center;gap:7px;font-size:12px;padding:5px 8px;border-radius:7px;
+    border:1px solid var(--line);cursor:pointer;user-select:none;color:var(--ink);background:#0f141b;margin:3px 0}
+  .chip .sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .chip .ct{margin-left:auto;font-size:10.5px;color:var(--muted)}
+  .chip.exp{background:#1c2735;border-color:#3a4a5e}
+  .chip .tw{font-size:10px;color:var(--faint);font-weight:700}
+  .legend-row{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);margin:3px 0}
+  .legend-row .sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .legend-row .swc{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
+  .legend-row .swl{width:18px;height:0;border-top-width:3px;border-top-style:solid;flex:0 0 auto}
+  .btnrow{display:flex;gap:6px;margin-top:2px}
+  button.ui{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:7px;
+    padding:6px 8px;font-size:11.5px;cursor:pointer}
+  button.ui:hover{background:#26303d}
+  .hint{font-size:11px;color:var(--faint);line-height:1.45}
+  #panel{width:340px;flex:0 0 340px;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto}
+  #panel .phead{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+  #panel .kicker{font-size:10.5px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:700;line-height:1.5}
+  #panel h2{margin:6px 0 0;font-size:17px;line-height:1.3}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;margin:9px 6px 0 0;color:#0c1014}
+  .pbody{padding:14px 18px 48px}
+  .field{margin:0 0 13px}
+  .field .lab{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:3px;font-weight:700}
+  .field .val{font-size:13.5px;line-height:1.5}
+  .field .val.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#bcd}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:5px;background:#0f141b;border:1px solid var(--line);margin:2px 4px 0 0;color:var(--muted)}
+  .conn{display:block;width:100%;text-align:left;background:#0f141b;border:1px solid var(--line);color:var(--ink);
+    border-radius:7px;padding:7px 9px;font-size:12px;margin:4px 0;cursor:pointer}
+  .conn:hover{background:#1b232d;border-color:#3a4757}
+  .conn .role{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .pbtn{display:inline-block;margin-top:10px;background:#26303d;border:1px solid #3a4a5e;color:var(--ink);
+    border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer}
+  .pbtn:hover{background:#30404f}
+  .empty-msg{padding:38px 22px;color:var(--faint);font-size:13px;line-height:1.65;text-align:center}
+  .link{stroke-opacity:.55}
+  .link.mention{stroke:#3a4757;stroke-opacity:.4}
+  .link.bridge{stroke:#5a6b7f;stroke-opacity:.6}
+  .blabel{font-size:10px;fill:var(--faint);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+  .node-label{font-size:11px;fill:var(--muted);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3.5px;stroke-linejoin:round}
+  .ent-label{font-size:11.5px;fill:#cdd9e6;font-weight:600;pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+  .cx-label{font-size:14px;font-weight:700;pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+  .cx-sub{font-size:10px;fill:var(--muted);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3.5px}
+  .dimmed{opacity:.1}
+  .node{cursor:pointer}
+  #tooltip{position:absolute;pointer-events:none;background:#070a0e;border:1px solid var(--line);border-radius:7px;
+    padding:7px 10px;font-size:12px;max-width:250px;opacity:0;transition:opacity .1s;z-index:9;line-height:1.4}
+  #tooltip .tt-state{font-weight:700;font-size:11px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Chrono<span class="dot">·</span>Web</h1>
+    <p id="subtitle"></p>
+  </header>
+  <div id="main">
+    <div id="stage">
+      <div id="controls">
+        <div class="card">
+          <h3>Complexes <span>(click to expand)</span></h3>
+          <div id="cx-chips"></div>
+        </div>
+        <div class="card">
+          <div class="btnrow">
+            <button class="ui" id="btn-overview">Overview</button>
+            <button class="ui" id="btn-expandall">Expand all</button>
+          </div>
+          <div class="btnrow" style="margin-top:6px">
+            <button class="ui" id="btn-reset">Re-center</button>
+            <button class="ui" id="btn-labels">Labels</button>
+            <button class="ui" id="btn-unpin">Unpin all</button>
+          </div>
+          <div class="hint" style="margin-top:8px">Big discs are the four <b>complexes</b>. Click one to branch it into its claims and hubs; click again to fold it back. Drag any node to <b>pin it in place</b> (dashed ring); double-click a node to release it.</div>
+        </div>
+        <div class="card">
+          <h3>Node states <span>(fill)</span></h3>
+          <div id="state-legend"></div>
+        </div>
+        <div class="card">
+          <h3>Inference edges</h3>
+          <div id="edge-legend"></div>
+        </div>
+      </div>
+      <svg id="svg"></svg>
+      <div id="tooltip"></div>
+    </div>
+    <aside id="panel">
+      <div class="empty-msg" id="empty-msg">
+        You're at the <b style="color:var(--muted)">overview</b> — the four complexes and the bridges between them.<br><br>
+        Click a complex disc to <b style="color:var(--muted)">drill in</b>. The thin links between discs are weighted by how many shared hubs and cross-claims connect them.
+      </div>
+      <div class="phead" id="phead" style="display:none"></div>
+      <div class="pbody" id="pbody" style="display:none"></div>
+    </aside>
+  </div>
+</div>
+
+<script src="chronoweb_data.js"></script>
+<script>
+(function(){
+  const D = window.CHRONOWEB_DATA;
+  if(!D){ document.getElementById('subtitle').textContent='Could not load chronoweb_data.js'; return; }
+  document.getElementById('subtitle').textContent =
+    "Click a complex to drill in. " + D.meta.subtitle;
+
+  const stateColorRaw = {
+    "Verified":"#4f9d69","Partially Verified":"#d99a2b","Falsified":"#e0533d",
+    "Source Not Found":"#7c8694","Source Says Otherwise":"#c77b3b",
+    "Misattributed":"#c77b3b","Unverifiable":"#5b7fa6","Open":"#566073"
+  };
+  const gradeColor = {"Warranted":"#4f9d69","Weak":"#d99a2b","Unwarranted":"#e0533d","NonSequitur":"#9e2f24"};
+  const verdictLabel = {"FAILS":"FAILS","PARTIALLY_HOLDS":"PARTIALLY HOLDS","LARGELY_HOLDS":"LARGELY HOLDS","MIXED":"MIXED","OPEN":"OPEN"};
+  const verdictColor = {"FAILS":"#e0533d","PARTIALLY_HOLDS":"#d99a2b","LARGELY_HOLDS":"#4f9d69","MIXED":"#c77b3b","OPEN":"#7c8694"};
+
+  const threadById  = Object.fromEntries(D.threads.map(t=>[t.id,t]));
+  const complexById = Object.fromEntries(D.complexes.map(c=>[c.id,c]));
+  const entById     = Object.fromEntries(D.entities.map(e=>[e.id,e]));
+  const nodeById    = Object.fromEntries(D.nodes.map(n=>[n.id,n]));
+  const cxOf    = id => threadById[id] ? threadById[id].complex : null;
+  const cxColor = id => (complexById[cxOf(id)]||{}).color || "#556";
+
+  // ---- precompute per-complex membership & entity touches ----
+  const claimsByCx = {}; D.complexes.forEach(c=>claimsByCx[c.id]=[]);
+  D.nodes.forEach(n=>{ const c=cxOf(n.thread); if(c) claimsByCx[c].push(n); });
+
+  const entCx = {};   // entity -> Set of complexes
+  D.nodes.forEach(n=>(n.entities||[]).forEach(eid=>{
+    (entCx[eid]=entCx[eid]||new Set()).add(cxOf(n.thread));
+  }));
+  D.entities.forEach(e=> e._cx=[...(entCx[e.id]||[])]);
+
+  // ---- bridge weights between complexes (shared hubs + cross edges) ----
+  const bridge = {};  // "A|B" -> {hubs:Set, edges:n}
+  function bkey(a,b){ return [a,b].sort().join("|"); }
+  Object.entries(entCx).forEach(([eid,set])=>{
+    const cs=[...set];
+    for(let i=0;i<cs.length;i++)for(let j=i+1;j<cs.length;j++){
+      const k=bkey(cs[i],cs[j]); (bridge[k]=bridge[k]||{hubs:new Set(),edges:0}).hubs.add(eid);
+    }
+  });
+  D.edges.forEach(e=>{ const a=cxOf(nodeById[e.from].thread), b=cxOf(nodeById[e.to].thread);
+    if(a&&b&&a!==b){ const k=bkey(a,b); (bridge[k]=bridge[k]||{hubs:new Set(),edges:0}).edges++; }});
+
+  // ---- per-complex anchor positions (quadrant layout) ----
+  const stage=document.getElementById("stage");
+  let W=stage.clientWidth, H=stage.clientHeight;
+  const anchors={};
+  function computeAnchors(){
+    const cx=W/2, cy=H/2, R=Math.min(W,H)*0.34;
+    const order=D.complexes.map(c=>c.id);
+    const start=-Math.PI*0.75;  // MIC upper-left-ish
+    order.forEach((id,i)=>{ const a=start + i/order.length*Math.PI*2;
+      anchors[id]={x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}; });
+  }
+  computeAnchors();
+
+  // ---- SVG scaffold ----
+  const svg=d3.select("#svg"); svg.attr("viewBox",[0,0,W,H]);
+  const defs=svg.append("defs");
+  Object.entries(gradeColor).forEach(([g,c])=>{
+    defs.append("marker").attr("id","arw-"+g).attr("viewBox","0 -5 10 10").attr("refX",22)
+      .attr("refY",0).attr("markerWidth",7).attr("markerHeight",7).attr("orient","auto")
+      .append("path").attr("d","M0,-4L9,0L0,4").attr("fill",c);
+  });
+  const root=svg.append("g");
+  const linkG=root.append("g"), linkLblG=root.append("g"), nodeG=root.append("g"), labelG=root.append("g");
+  const zoom=d3.zoom().scaleExtent([0.2,4]).on("zoom",ev=>root.attr("transform",ev.transform));
+  svg.call(zoom);
+  svg.on("dblclick.zoom",null);  // free up double-click for unpinning nodes
+
+  // ---- state ----
+  const expanded=new Set();      // complex ids currently drilled-in
+  let sim=null, selected=null, labelsOn=true;
+  const posCache={};             // id -> {x,y}
+
+  // ---- build the visible graph from `expanded` ----
+  function buildGraph(){
+    const nodes=[], links=[];
+    const present=new Set();
+
+    // complex nodes (collapsed) or their claim nodes (expanded)
+    D.complexes.forEach(c=>{
+      if(expanded.has(c.id)){
+        claimsByCx[c.id].forEach(n=> { nodes.push(mkClaim(n)); present.add(n.id); });
+      } else {
+        nodes.push(mkSuper(c)); present.add("cx_"+c.id);
+      }
+    });
+    // entity hubs: visible if touched by an expanded complex
+    D.entities.forEach(e=>{
+      if(e._cx.some(c=>expanded.has(c))){ nodes.push(mkHub(e)); present.add(e.id); }
+    });
+
+    const has = id => present.has(id);
+    const superId = c => "cx_"+c;
+
+    // inference edges
+    D.edges.forEach(e=>{
+      const a=e.from, b=e.to, ca=cxOf(nodeById[a].thread), cb=cxOf(nodeById[b].thread);
+      const aE=expanded.has(ca), bE=expanded.has(cb);
+      let s,t;
+      if(aE&&bE){ s=a; t=b; }
+      else if(aE&&!bE){ s=a; t=superId(cb); }
+      else if(!aE&&bE){ s=superId(ca); t=b; }
+      else return; // both collapsed -> handled by bridge aggregate
+      if(has(s)&&has(t)) links.push({source:s,target:t,ltype:"inference",grade:e.grade,etype:e.type,note:e.note,id:e.id});
+    });
+
+    // mention links (claim<->hub) and hub<->collapsed-complex bridges
+    D.entities.forEach(e=>{
+      if(!has(e.id)) return;
+      // for each complex touching this hub
+      const seenSuper=new Set();
+      D.nodes.forEach(n=>{
+        if(!(n.entities||[]).includes(e.id)) return;
+        const c=cxOf(n.thread);
+        if(expanded.has(c)){ if(has(n.id)) links.push({source:n.id,target:e.id,ltype:"mention"}); }
+        else { const sid=superId(c); if(has(sid)&&!seenSuper.has(sid)){ seenSuper.add(sid);
+          links.push({source:sid,target:e.id,ltype:"bridge"}); } }
+      });
+    });
+
+    // overview bridges: both complexes collapsed
+    Object.entries(bridge).forEach(([k,v])=>{
+      const [a,b]=k.split("|");
+      if(!expanded.has(a)&&!expanded.has(b)){
+        const w=v.hubs.size+v.edges;
+        if(has(superId(a))&&has(superId(b)))
+          links.push({source:superId(a),target:superId(b),ltype:"bridge",weight:w,
+            label:v.hubs.size+" hub"+(v.hubs.size!==1?"s":"")+(v.edges?", "+v.edges+" cross":"")});
+      }
+    });
+
+    return {nodes,links};
+  }
+
+  function mkClaim(n){ return seed(Object.assign({},n,{kind:"claim"}), cxOf(n.thread)); }
+  function mkHub(e){ const a=blend(e._cx); return seed(Object.assign({},e,{kind:"hub",kind2:e.kind,crossN:e._cx.length}), null, a); }
+  function mkSuper(c){
+    const claims=claimsByCx[c.id];
+    const states={}; claims.forEach(n=>states[n.state]=(states[n.state]||0)+1);
+    const verds={}; D.threads.filter(t=>t.complex===c.id).forEach(t=>verds[t.verdict]=(verds[t.verdict]||0)+1);
+    return seed({kind:"super",id:"cx_"+c.id,cid:c.id,label:c.label,color:c.color,
+      nClaims:claims.length,nThreads:D.threads.filter(t=>t.complex===c.id).length,
+      states,verds},c.id);
+  }
+  function blend(cs){ // average anchor of complexes
+    const pts=cs.map(c=>anchors[c]).filter(Boolean);
+    if(!pts.length) return {x:W/2,y:H/2};
+    return {x:d3.mean(pts,p=>p.x),y:d3.mean(pts,p=>p.y)};
+  }
+  function seed(o,cid,pt){
+    const cache=posCache[o.id];
+    const base = pt || (cid?anchors[cid]:null) || {x:W/2,y:H/2};
+    o.x = cache? cache.x : base.x + (Math.random()-.5)*60;
+    o.y = cache? cache.y : base.y + (Math.random()-.5)*60;
+    o._anchor = cid? anchors[cid] : (pt||{x:W/2,y:H/2});
+    return o;
+  }
+
+  // ---- render ----
+  function render(){
+    const {nodes,links}=buildGraph();
+    if(sim) sim.stop();
+    linkG.selectAll("*").remove(); linkLblG.selectAll("*").remove();
+    nodeG.selectAll("*").remove(); labelG.selectAll("*").remove();
+
+    const link=linkG.selectAll("line").data(links).join("line")
+      .attr("class",l=> l.ltype==="mention"?"link mention": l.ltype==="bridge"?"link bridge":"link")
+      .attr("stroke",l=> l.ltype==="inference"?gradeColor[l.grade]:null)
+      .attr("stroke-width",l=> l.ltype==="inference"?2.6 : l.ltype==="bridge"?Math.min(1+(l.weight||1)*0.7,6):1)
+      .attr("stroke-dasharray",l=> l.ltype==="inference"&&l.grade==="Weak"?"6 4":
+            l.ltype==="inference"&&(l.grade==="Unwarranted"||l.grade==="NonSequitur")?"2 4":null)
+      .attr("marker-end",l=> l.ltype==="inference"?"url(#arw-"+l.grade+")":null);
+
+    const linkLbl=linkLblG.selectAll("text").data(links.filter(l=>l.label)).join("text")
+      .attr("class","blabel").attr("text-anchor","middle").text(l=>l.label);
+
+    const node=nodeG.selectAll("g.node").data(nodes,d=>d.id).join(enter=>{
+      const g=enter.append("g").attr("class","node");
+      return g;
+    });
+    node.each(function(d){ drawNode(d3.select(this),d); });
+    node.call(d3.drag()
+      .on("start",(ev,d)=>{ if(!ev.active) sim.alphaTarget(.2).restart(); d.fx=d.x; d.fy=d.y; })
+      .on("drag",(ev,d)=>{ d.fx=ev.x; d.fy=ev.y; })
+      .on("end",(ev,d)=>{ if(!ev.active) sim.alphaTarget(0); setPin(d,true); }))  // stay where dropped
+      .on("mouseenter",(ev,d)=>showTip(ev,d)).on("mousemove",moveTip).on("mouseleave",hideTip)
+      .on("click",(ev,d)=>{ ev.stopPropagation(); onClick(d); })
+      .on("dblclick",(ev,d)=>{ if(d.kind!=="super"){ ev.stopPropagation(); setPin(d,false); sim.alpha(.3).restart(); } });
+    // restore pin markers for any node still pinned after a rebuild
+    node.each(function(d){ if(d.pinned){ d.fx=d.x; d.fy=d.y; drawPin(d3.select(this),d);} });
+
+    const label=labelG.selectAll("g.lab").data(nodes,d=>d.id).join("g").attr("class","lab")
+      .each(function(d){ drawLabel(d3.select(this),d); });
+
+    sim=d3.forceSimulation(nodes)
+      .force("link",d3.forceLink(links).id(d=>d.id)
+        .distance(l=> l.ltype==="bridge"&&l.weight? 240 :
+                      l.ltype==="bridge"? 150 :
+                      l.ltype==="inference"? 120 : 110)
+        .strength(l=> l.ltype==="inference"?0.35: l.ltype==="bridge"&&l.weight?0.25:0.12))
+      .force("charge",d3.forceManyBody().strength(d=> d.kind==="super"?-2600: d.kind==="hub"?-900:-520))
+      .force("collide",d3.forceCollide().radius(d=> d.kind==="super"?superR(d)+18: d.kind==="hub"?34:24).iterations(2))
+      .force("x",d3.forceX(d=>d._anchor.x).strength(d=> d.kind==="hub"?0.06: d.kind==="super"?0.10:0.13))
+      .force("y",d3.forceY(d=>d._anchor.y).strength(d=> d.kind==="hub"?0.06: d.kind==="super"?0.10:0.13))
+      .on("tick",()=>{
+        link.attr("x1",l=>l.source.x).attr("y1",l=>l.source.y).attr("x2",l=>l.target.x).attr("y2",l=>l.target.y);
+        linkLbl.attr("x",l=>(l.source.x+l.target.x)/2).attr("y",l=>(l.source.y+l.target.y)/2-4);
+        node.attr("transform",d=>`translate(${d.x},${d.y})`);
+        label.attr("transform",d=>`translate(${d.x},${d.y})`);
+        nodes.forEach(n=>posCache[n.id]={x:n.x,y:n.y});
+      });
+    sim.alpha(0.9).restart();
+    applyLabelVis();
+    syncChips();
+  }
+
+  function superR(d){ return 30 + Math.min(d.nClaims,20)*1.1; }
+
+  // ---- pinning (drag to drop-in-place) ----
+  function pinRadius(d){ return d.kind==="super"?superR(d)+12 : d.kind==="hub"?(11+(d.crossN||1)*3.2)+7 : (d.layer==="anchor"?9:d.layer==="parked"?6:7.5)+5; }
+  function drawPin(g,d){ g.selectAll(".pinmark").remove();
+    g.append("circle").attr("class","pinmark").attr("r",pinRadius(d)).attr("fill","none")
+      .attr("stroke","#cfe3ff").attr("stroke-width",1).attr("stroke-dasharray","2 3").attr("opacity",.75); }
+  function setPin(d,on){
+    d.pinned=on; if(on){ d.fx=d.x; d.fy=d.y; } else { d.fx=null; d.fy=null; }
+    const g=nodeG.selectAll("g.node").filter(x=>x.id===d.id);
+    if(on) drawPin(g,d); else g.selectAll(".pinmark").remove();
+  }
+  function unpinAll(){
+    nodeG.selectAll("g.node").each(function(d){ d.pinned=false; d.fx=null; d.fy=null; d3.select(this).selectAll(".pinmark").remove(); });
+    if(sim) sim.alpha(.5).restart();
+  }
+
+  function drawNode(g,d){
+    g.selectAll("*").remove();
+    if(d.kind==="claim"){
+      const r=d.layer==="anchor"?9:d.layer==="parked"?6:7.5;
+      g.append("circle").attr("r",r).attr("fill",stateColorRaw[d.state]||"#888")
+        .attr("stroke",cxColor(d.thread)).attr("stroke-width",d.layer==="anchor"?2.6:1.7)
+        .attr("stroke-dasharray",d.layer==="parked"?"2 2":null).attr("opacity",d.layer==="parked"?.7:1);
+      if(d.layer==="interp") g.append("circle").attr("r",r+3).attr("fill","none")
+        .attr("stroke",stateColorRaw[d.state]||"#888").attr("stroke-width",1).attr("opacity",.45);
+    } else if(d.kind==="hub"){
+      const s=11+(d.crossN||1)*3.2;
+      g.append("path").attr("d",`M0,${-s} L${s},0 L0,${s} L${-s},0 Z`)
+        .attr("fill",d.crossN>1?"#243244":"#1a222c").attr("stroke",d.crossN>1?"#7e9bbb":"#46566a")
+        .attr("stroke-width",d.crossN>1?2.4:1.4);
+      if(d.crossN>1) g.append("path").attr("d",`M0,${-s-4} L${s+4},0 L0,${s+4} L${-s-4},0 Z`)
+        .attr("fill","none").attr("stroke","#7e9bbb").attr("stroke-width",.8).attr("opacity",.4);
+    } else { // super
+      const r=superR(d);
+      g.append("circle").attr("r",r).attr("fill",d.color+"22").attr("stroke",d.color).attr("stroke-width",3);
+      // verdict/state ring
+      const arc=d3.arc().innerRadius(r+3).outerRadius(r+9);
+      const pie=d3.pie().sort(null).value(v=>v[1]);
+      const data=pie(Object.entries(d.states));
+      g.selectAll("path.ring").data(data).join("path").attr("class","ring")
+        .attr("d",arc).attr("fill",v=>stateColorRaw[v.data[0]]||"#555").attr("opacity",.9);
+      g.append("circle").attr("r",r*0.40).attr("fill",d.color).attr("opacity",.85);
+      g.append("text").attr("text-anchor","middle").attr("dy",".34em").attr("font-size",r*0.42)
+        .attr("font-weight",700).attr("fill","#0c1014").attr("pointer-events","none").text(d.cid);
+    }
+  }
+  function drawLabel(g,d){
+    g.selectAll("*").remove();
+    if(d.kind==="super"){
+      const r=superR(d);
+      g.append("text").attr("class","cx-label").attr("text-anchor","middle").attr("y",r+18)
+        .attr("fill",d.color).text(d.label);
+      g.append("text").attr("class","cx-sub").attr("text-anchor","middle").attr("y",r+32)
+        .text(d.nThreads+" threads · "+d.nClaims+" nodes · click to expand");
+    } else if(d.kind==="hub"){
+      const s=11+(d.crossN||1)*3.2;
+      g.append("text").attr("class","ent-label").attr("text-anchor","middle").attr("y",s+15).text(d.label);
+    } else {
+      g.append("text").attr("class","node-label").attr("text-anchor","middle").attr("y",-13).text(d.label);
+    }
+  }
+
+  function applyLabelVis(){
+    labelG.selectAll("g.lab").style("display",d=>{
+      if(!labelsOn && d.kind==="claim") return "none";
+      return null;
+    });
+  }
+
+  // ---- interactions ----
+  function onClick(d){
+    if(d.kind==="super"){ toggleComplex(d.cid); renderComplexPanel(d.cid); }
+    else selectNode(d);
+  }
+  function toggleComplex(cid){
+    if(expanded.has(cid)) expanded.delete(cid); else expanded.add(cid);
+    selected=null; render();
+  }
+  svg.on("click",()=>clearSelection());
+
+  function selectNode(d){
+    selected=d.id;
+    const keep=new Set([d.id]);
+    sim.force("link"); // noop
+    linkG.selectAll("line").each(function(l){ if(l.source.id===d.id||l.target.id===d.id){ keep.add(l.source.id); keep.add(l.target.id);} });
+    nodeG.selectAll("g.node").classed("dimmed",n=>!keep.has(n.id));
+    labelG.selectAll("g.lab").classed("dimmed",n=>!keep.has(n.id));
+    linkG.selectAll("line").classed("dimmed",l=>!(l.source.id===d.id||l.target.id===d.id));
+    if(d.kind==="claim") renderClaimPanel(d); else renderHubPanel(d);
+  }
+  function clearSelection(){
+    selected=null;
+    nodeG.selectAll("g.node").classed("dimmed",false);
+    labelG.selectAll("g.lab").classed("dimmed",false);
+    linkG.selectAll("line").classed("dimmed",false);
+    showEmpty();
+  }
+
+  // ---- tooltip ----
+  const tip=document.getElementById("tooltip");
+  function showTip(ev,d){
+    let h;
+    if(d.kind==="claim"){ const cx=complexById[cxOf(d.thread)];
+      h=`<div class="tt-state" style="color:${stateColorRaw[d.state]}">${d.state}</div><div style="margin-top:2px">${d.label}</div>`+
+        `<div style="color:${cx?cx.color:'#9ab'};margin-top:3px;font-size:11px">${cx?cx.label:''}</div>`;
+    } else if(d.kind==="hub"){
+      h=`<div class="tt-state" style="color:#9cb4cf">${d.label}</div><div style="color:var(--muted);margin-top:2px;font-size:11px">${d.kind2||d.kind} hub${d.date?" · "+d.date:""}</div>`+
+        (d.crossN>1?`<div style="color:#9cb4cf;margin-top:3px;font-size:11px">⬥ crosses ${d.crossN} complexes</div>`:"");
+    } else {
+      h=`<div class="tt-state" style="color:${d.color}">${d.label}</div><div style="color:var(--muted);margin-top:2px;font-size:11px">${d.nThreads} threads · ${d.nClaims} nodes</div><div style="color:var(--faint);margin-top:2px;font-size:11px">click to ${expanded.has(d.cid)?'collapse':'expand'}</div>`;
+    }
+    tip.innerHTML=h; tip.style.opacity=1; moveTip(ev);
+  }
+  function moveTip(ev){ const r=stage.getBoundingClientRect(); let x=ev.clientX-r.left+14,y=ev.clientY-r.top+14;
+    if(x>r.width-260)x=ev.clientX-r.left-260; tip.style.left=x+"px"; tip.style.top=y+"px"; }
+  function hideTip(){ tip.style.opacity=0; }
+
+  // ---- panels ----
+  const panel={empty:document.getElementById("empty-msg"),head:document.getElementById("phead"),body:document.getElementById("pbody")};
+  function showEmpty(){ panel.empty.style.display="block"; panel.head.style.display="none"; panel.body.style.display="none"; }
+  function showPanel(){ panel.empty.style.display="none"; panel.head.style.display="block"; panel.body.style.display="block"; }
+  function field(l,v){ return `<div class="field"><div class="lab">${l}</div><div class="val">${v}</div></div>`; }
+
+  function renderComplexPanel(cid){
+    showPanel(); const c=complexById[cid];
+    const threads=D.threads.filter(t=>t.complex===cid);
+    const claims=claimsByCx[cid];
+    const states={}; claims.forEach(n=>states[n.state]=(states[n.state]||0)+1);
+    panel.head.innerHTML=`<div class="kicker" style="color:${c.color}">COMPLEX${expanded.has(cid)?" · EXPANDED":" · COLLAPSED"}</div><h2>${c.label} (${cid})</h2>`+
+      `<span class="badge" style="background:${c.color}">${threads.length} threads · ${claims.length} nodes</span>`;
+    let th=threads.map(t=>`<button class="conn" data-thread="${t.id}"><span class="role" style="color:${verdictColor[t.verdict]}">${verdictLabel[t.verdict]}</span><br>${t.title}</button>`).join("");
+    let st=Object.entries(states).sort((a,b)=>b[1]-a[1]).map(([s,n])=>`<span class="pill"><span style="color:${stateColorRaw[s]}">●</span> ${s}: ${n}</span>`).join("");
+    panel.body.innerHTML=
+      `<div style="margin-bottom:12px"><span class="pbtn" data-toggle="${cid}">${expanded.has(cid)?"⊖ Collapse this complex":"⊕ Expand this complex"}</span></div>`+
+      field("Threads", th)+
+      field("Node states in this complex", st);
+  }
+  function renderClaimPanel(d){
+    showPanel(); const th=threadById[d.thread], cx=complexById[cxOf(d.thread)];
+    panel.head.innerHTML=`<div class="kicker">${cx?`<span style="color:${cx.color}">${cx.label} (${cx.id})</span> · `:""}${th?th.title:""} · ${d.layer} layer</div>`+
+      `<h2>${d.label}</h2><span class="badge" style="background:${stateColorRaw[d.state]}">${d.state}</span>`;
+    panel.body.innerHTML=
+      field("Claim",d.claim)+
+      (d.note?field("Finding",d.note):"")+
+      (d.primarySource?field("Primary source",`<span class="mono">${d.primarySource}</span>`):"")+
+      `<div class="field"><div class="lab">Tags</div><div class="val">`+
+        (d.date?`<span class="pill">📅 ${d.date}</span>`:"")+
+        (d.concreteness?`<span class="pill">concreteness: ${d.concreteness}</span>`:"")+
+        (d.sourcing?`<span class="pill">sourcing: ${d.sourcing}</span>`:"")+
+        `<span class="pill">verdict: ${verdictLabel[th?.verdict]||""}</span></div></div>`+
+      field("Connections",connFor(d.id));
+  }
+  function renderHubPanel(d){
+    showPanel();
+    panel.head.innerHTML=`<div class="kicker">SHARED HUB · ${d.kind2||"entity"}${d.date?" · "+d.date:""}</div><h2>${d.label}</h2>`+
+      (d.crossN>1?`<span class="badge" style="background:#6f8aa8">⬥ CROSSES ${d.crossN} COMPLEXES</span>`:`<span class="badge" style="background:#46566a;color:#dfe">one complex</span>`);
+    const cxList=(d._cx||[]).map(cid=>{const c=complexById[cid];
+      return `<button class="conn" data-complex="${cid}"><span class="role" style="color:${c.color}">${c.label}</span><br><span style="color:var(--muted);font-size:11px">${expanded.has(cid)?"expanded":"click to expand"}</span></button>`;}).join("");
+    panel.body.innerHTML=(d.note?field("Why it matters",d.note):"")+
+      field("Complexes welded here",cxList)+field("Linked nodes",connFor(d.id));
+  }
+  function connFor(id){
+    let html="";
+    const inf=D.edges.filter(e=>e.from===id||e.to===id);
+    inf.forEach(e=>{ const other=e.from===id?e.to:e.from, dir=e.from===id?"→ infers":"← inferred from", o=nodeById[other];
+      html+=`<button class="conn" data-node="${other}"><span class="role" style="color:${gradeColor[e.grade]}">${dir} · ${e.type} · ${e.grade}</span><br>${o?o.label:other}</button>`; });
+    if(nodeById[id]) (nodeById[id].entities||[]).forEach(eid=>{ const e=entById[eid]; if(!e)return;
+      html+=`<button class="conn" data-node="${eid}"><span class="role">touches hub${e._cx.length>1?" · ⬥"+e._cx.length+" complexes":""}</span><br>${e.label}</button>`; });
+    if(entById[id]) D.nodes.filter(n=>(n.entities||[]).includes(id)).forEach(n=>{
+      html+=`<button class="conn" data-node="${n.id}"><span class="role" style="color:${cxColor(n.thread)}">${threadById[n.thread]?.title} · ${n.state}</span><br>${n.label}</button>`; });
+    return html||`<div class="hint">No links.</div>`;
+  }
+
+  // panel delegation
+  document.getElementById("panel").addEventListener("click",ev=>{
+    const tg=ev.target.closest("[data-toggle]"); if(tg){ toggleComplex(tg.getAttribute("data-toggle")); renderComplexPanel(tg.getAttribute("data-toggle")); return; }
+    const cb=ev.target.closest("[data-complex]"); if(cb){ const cid=cb.getAttribute("data-complex"); if(!expanded.has(cid)){expanded.add(cid);render();} renderComplexPanel(cid); return; }
+    const nb=ev.target.closest("[data-node]"); if(nb){ jumpToNode(nb.getAttribute("data-node")); return; }
+    const tb=ev.target.closest("[data-thread]"); if(tb){ const cid=cxOf(tb.getAttribute("data-thread")); if(!expanded.has(cid)){expanded.add(cid);render();} return; }
+  });
+  function jumpToNode(id){
+    // ensure its complex expanded (if claim) then select
+    const n=nodeById[id];
+    if(n){ const c=cxOf(n.thread); if(!expanded.has(c)){ expanded.add(c); render(); } }
+    setTimeout(()=>{ const g=nodeG.selectAll("g.node").filter(d=>d.id===id).datum();
+      if(g){ centerOn(g); selectNode(g); } },80);
+  }
+  function centerOn(d){ const t=d3.zoomTransform(svg.node());
+    svg.transition().duration(450).call(zoom.transform, d3.zoomIdentity.translate(W/2-d.x*t.k,H/2-d.y*t.k).scale(t.k)); }
+
+  // ---- chips ----
+  const chipWrap=document.getElementById("cx-chips");
+  D.complexes.forEach(c=>{
+    const el=document.createElement("div"); el.className="chip"; el.dataset.cx=c.id;
+    el.innerHTML=`<span class="sw" style="background:${c.color}"></span><span>${c.label}</span><span class="ct">${D.threads.filter(t=>t.complex===c.id).length}t</span>`;
+    el.onclick=()=>toggleComplex(c.id);
+    chipWrap.appendChild(el);
+  });
+  function syncChips(){ document.querySelectorAll(".chip[data-cx]").forEach(el=>{
+    const on=expanded.has(el.dataset.cx); el.classList.toggle("exp",on);
+    let tw=el.querySelector(".tw"); if(on&&!tw){ tw=document.createElement("span"); tw.className="tw"; tw.textContent="▾"; el.insertBefore(tw,el.querySelector(".ct")); }
+    if(!on&&tw) tw.remove();
+  }); }
+
+  // ---- legends ----
+  const sl=document.getElementById("state-legend");
+  [["Verified","#4f9d69"],["Partially Verified","#d99a2b"],["Falsified","#e0533d"],["Source Says Otherwise","#c77b3b"],["Source Not Found","#7c8694"],["Unverifiable","#5b7fa6"]]
+    .forEach(([t,c])=> sl.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swc" style="background:${c}"></span>${t}</div>`));
+  sl.insertAdjacentHTML("beforeend",`<div class="legend-row" style="margin-top:6px"><span class="sw" style="background:transparent;border:2px solid #7e9bbb;transform:rotate(45deg)"></span>shared hub (crosses complexes)</div>`);
+  const el=document.getElementById("edge-legend");
+  [["Warranted","#4f9d69","solid"],["Weak","#d99a2b","dashed"],["Unwarranted","#e0533d","dotted"],["NonSequitur","#9e2f24","dotted"]]
+    .forEach(([t,c,s])=> el.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swl" style="border-top-color:${c};border-top-style:${s}"></span>${t}</div>`));
+
+  // ---- buttons ----
+  document.getElementById("btn-overview").onclick=()=>{ expanded.clear(); selected=null; render(); clearSelection();
+    svg.transition().duration(500).call(zoom.transform,d3.zoomIdentity); };
+  document.getElementById("btn-expandall").onclick=()=>{ D.complexes.forEach(c=>expanded.add(c.id)); render(); };
+  document.getElementById("btn-reset").onclick=()=>{ svg.transition().duration(450).call(zoom.transform,d3.zoomIdentity); if(sim) sim.alpha(0.6).restart(); };
+  document.getElementById("btn-labels").onclick=()=>{ labelsOn=!labelsOn; applyLabelVis(); };
+  document.getElementById("btn-unpin").onclick=unpinAll;
+
+  window.addEventListener("resize",()=>{ W=stage.clientWidth;H=stage.clientHeight; svg.attr("viewBox",[0,0,W,H]); computeAnchors();
+    if(sim) sim.alpha(0.3).restart(); });
+
+  // ---- go: start at overview ----
+  render();
+  setTimeout(()=> svg.transition().duration(700).call(zoom.transform,d3.zoomIdentity.translate(W*0.06,H*0.04).scale(0.86)), 350);
+})();
+</script>
+</body>
+</html>
