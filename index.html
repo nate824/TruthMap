@@ -138,9 +138,15 @@
   const stateColorRaw = {
     "Verified":"#4f9d69","Partially Verified":"#d99a2b","Falsified":"#e0533d",
     "Source Not Found":"#7c8694","Source Says Otherwise":"#c77b3b",
-    "Misattributed":"#c77b3b","Unverifiable":"#5b7fa6","Open":"#566073"
+    "Misattributed":"#c77b3b","Unverifiable":"#5b7fa6","Open":"#566073","Contested":"#d2509f"
   };
   const gradeColor = {"Warranted":"#4f9d69","Weak":"#d99a2b","Unwarranted":"#e0533d","NonSequitur":"#9e2f24"};
+  // cross-source reconciliation link types
+  const REC = new Set(["corroborates","clarifies","contests","disproves","parallels"]);
+  const recColor = {"corroborates":"#4f9d69","clarifies":"#5b7fa6","contests":"#d2509f","disproves":"#e0533d","parallels":"#8a94a3"};
+  const recDash  = {"corroborates":"1 6","clarifies":"7 4","contests":"5 3 2 3","disproves":"3 3","parallels":"2 5"};
+  const sourceById = Object.fromEntries((D.sources||[]).map(s=>[s.id,s]));
+  const srcOf = threadId => (threadById[threadId]&&threadById[threadId].srcId) || "src_dixon";
   const verdictLabel = {"FAILS":"FAILS","PARTIALLY_HOLDS":"PARTIALLY HOLDS","LARGELY_HOLDS":"LARGELY HOLDS","MIXED":"MIXED","OPEN":"OPEN"};
   const verdictColor = {"FAILS":"#e0533d","PARTIALLY_HOLDS":"#d99a2b","LARGELY_HOLDS":"#4f9d69","MIXED":"#c77b3b","OPEN":"#7c8694"};
 
@@ -235,7 +241,8 @@
       else if(aE&&!bE){ s=a; t=superId(cb); }
       else if(!aE&&bE){ s=superId(ca); t=b; }
       else return; // both collapsed -> handled by bridge aggregate
-      if(has(s)&&has(t)) links.push({source:s,target:t,ltype:"inference",grade:e.grade,etype:e.type,note:e.note,id:e.id});
+      const isRec=REC.has(e.type);
+      if(has(s)&&has(t)) links.push({source:s,target:t,ltype:isRec?"recon":"inference",recType:e.type,grade:e.grade,etype:e.type,note:e.note,id:e.id});
     });
 
     // mention links (claim<->hub) and hub<->collapsed-complex bridges
@@ -298,10 +305,12 @@
     nodeG.selectAll("*").remove(); labelG.selectAll("*").remove();
 
     const link=linkG.selectAll("line").data(links).join("line")
-      .attr("class",l=> l.ltype==="mention"?"link mention": l.ltype==="bridge"?"link bridge":"link")
-      .attr("stroke",l=> l.ltype==="inference"?gradeColor[l.grade]:null)
-      .attr("stroke-width",l=> l.ltype==="inference"?2.6 : l.ltype==="bridge"?Math.min(1+(l.weight||1)*0.7,6):1)
-      .attr("stroke-dasharray",l=> l.ltype==="inference"&&l.grade==="Weak"?"6 4":
+      .attr("class",l=> l.ltype==="mention"?"link mention": l.ltype==="bridge"?"link bridge": l.ltype==="recon"?"link recon":"link")
+      .attr("stroke",l=> l.ltype==="inference"?gradeColor[l.grade] : l.ltype==="recon"?recColor[l.recType]:null)
+      .attr("stroke-width",l=> l.ltype==="inference"?2.6 : l.ltype==="recon"?2.8 : l.ltype==="bridge"?Math.min(1+(l.weight||1)*0.7,6):1)
+      .attr("stroke-opacity",l=> l.ltype==="recon"?0.85:null)
+      .attr("stroke-dasharray",l=> l.ltype==="recon"?recDash[l.recType]:
+            l.ltype==="inference"&&l.grade==="Weak"?"6 4":
             l.ltype==="inference"&&(l.grade==="Unwarranted"||l.grade==="NonSequitur")?"2 4":null)
       .attr("marker-end",l=> l.ltype==="inference"?"url(#arw-"+l.grade+")":null);
 
@@ -490,7 +499,9 @@
     showPanel(); const th=threadById[d.thread], cx=complexById[cxOf(d.thread)];
     panel.head.innerHTML=`<div class="kicker">${cx?`<span style="color:${cx.color}">${cx.label} (${cx.id})</span> · `:""}${th?th.title:""} · ${d.layer} layer</div>`+
       `<h2>${d.label}</h2><span class="badge" style="background:${stateColorRaw[d.state]}">${d.state}</span>`;
+    const src=sourceById[srcOf(d.thread)];
     panel.body.innerHTML=
+      (src?`<div class="field"><div class="lab">Source</div><div class="val" style="font-size:12.5px">${src.url?`<a href="${src.url}" target="_blank" style="color:#7fb0d6;text-decoration:none">${src.label} ↗</a>`:src.label}</div></div>`:"")+
       field("Claim",d.claim)+
       (d.note?field("Finding",d.note):"")+
       (d.primarySource?field("Primary source",`<span class="mono">${d.primarySource}</span>`):"")+
@@ -513,8 +524,10 @@
   function connFor(id){
     let html="";
     const inf=D.edges.filter(e=>e.from===id||e.to===id);
-    inf.forEach(e=>{ const other=e.from===id?e.to:e.from, dir=e.from===id?"→ infers":"← inferred from", o=nodeById[other];
-      html+=`<button class="conn" data-node="${other}"><span class="role" style="color:${gradeColor[e.grade]}">${dir} · ${e.type} · ${e.grade}</span><br>${o?o.label:other}</button>`; });
+    inf.forEach(e=>{ const other=e.from===id?e.to:e.from, o=nodeById[other], isRec=REC.has(e.type);
+      const col=isRec?recColor[e.type]:gradeColor[e.grade];
+      const role=isRec ? (e.from===id?"→ ":"↔ ")+e.type.toUpperCase() : (e.from===id?"→ infers":"← inferred from")+" · "+e.type+" · "+e.grade;
+      html+=`<button class="conn" data-node="${other}"><span class="role" style="color:${col}">${role}</span><br>${o?o.label:other}</button>`; });
     if(nodeById[id]) (nodeById[id].entities||[]).forEach(eid=>{ const e=entById[eid]; if(!e)return;
       html+=`<button class="conn" data-node="${eid}"><span class="role">touches hub${e._cx.length>1?" · ⬥"+e._cx.length+" complexes":""}</span><br>${e.label}</button>`; });
     if(entById[id]) D.nodes.filter(n=>(n.entities||[]).includes(id)).forEach(n=>{
@@ -555,12 +568,15 @@
 
   // ---- legends ----
   const sl=document.getElementById("state-legend");
-  [["Verified","#4f9d69"],["Partially Verified","#d99a2b"],["Falsified","#e0533d"],["Source Says Otherwise","#c77b3b"],["Source Not Found","#7c8694"],["Unverifiable","#5b7fa6"]]
+  [["Verified","#4f9d69"],["Partially Verified","#d99a2b"],["Falsified","#e0533d"],["Source Says Otherwise","#c77b3b"],["Source Not Found","#7c8694"],["Unverifiable","#5b7fa6"],["Contested (sources clash)","#d2509f"]]
     .forEach(([t,c])=> sl.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swc" style="background:${c}"></span>${t}</div>`));
   sl.insertAdjacentHTML("beforeend",`<div class="legend-row" style="margin-top:6px"><span class="sw" style="background:transparent;border:2px solid #7e9bbb;transform:rotate(45deg)"></span>shared hub (crosses complexes)</div>`);
   const el=document.getElementById("edge-legend");
   [["Warranted","#4f9d69","solid"],["Weak","#d99a2b","dashed"],["Unwarranted","#e0533d","dotted"],["NonSequitur","#9e2f24","dotted"]]
     .forEach(([t,c,s])=> el.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swl" style="border-top-color:${c};border-top-style:${s}"></span>${t}</div>`));
+  el.insertAdjacentHTML("beforeend",`<div class="legend-row" style="margin-top:7px;color:var(--faint);font-size:10px;text-transform:uppercase;letter-spacing:.7px">Cross-source links</div>`);
+  [["corroborates","#4f9d69","dotted"],["clarifies","#5b7fa6","dashed"],["contests","#d2509f","dashed"],["parallels (thematic)","#8a94a3","dotted"]]
+    .forEach(([t,c,s])=> el.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swl" style="border-top-color:${c};border-top-style:${s};border-top-width:3px"></span>${t}</div>`));
 
   // ---- buttons ----
   document.getElementById("btn-overview").onclick=()=>{ expanded.clear(); selected=null; render(); clearSelection();
