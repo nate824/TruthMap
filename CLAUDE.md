@@ -36,7 +36,7 @@ Two code files, several governing docs:
 
 ### Governing methodology docs (read before touching data)
 
-- **`claim_verification_methodology.md`** — how to resolve ONE source into graded nodes/edges (taxonomy, resolution states, thread discipline, verdict scale).
+- **`claim_verification_methodology.md`** — how to resolve ONE source into graded nodes/edges (taxonomy, resolution states, thread discipline, verdict scale). `README.md` mirrors this doc in full for public readers — when editing one, update the other.
 - **`web_integration_protocol.md`** — how a newly verified source is folded into the existing web (dedupe buckets: New / Corroborate / Clarify / Disprove / Contest). Key invariant: **never overwrite a source's claim; attach relationships to it.** State changes happen only on `Disprove`, with a dated, logged reconciliation entry. When in doubt, `Contest` (mint an RX node) instead of adjudicating.
 
 ### Per-source working artifacts
