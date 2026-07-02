@@ -73,8 +73,12 @@
   .ent-label{font-size:11.5px;fill:#cdd9e6;font-weight:600;pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
   .cx-label{font-size:14px;font-weight:700;pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
   .cx-sub{font-size:10px;fill:var(--muted);pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3.5px}
-  .dimmed{opacity:.1}
+  .dimmed{opacity:.08}
+  .semi{opacity:.32}
   .node{cursor:pointer}
+  .srclink{display:block;color:#7fb0d6;text-decoration:none;font-size:12.5px;padding:5px 8px;margin:4px 0;
+    background:#0f141b;border:1px solid var(--line);border-radius:7px}
+  .srclink:hover{background:#1b232d;border-color:#3a4757}
   #tooltip{position:absolute;pointer-events:none;background:#070a0e;border:1px solid var(--line);border-radius:7px;
     padding:7px 10px;font-size:12px;max-width:250px;opacity:0;transition:opacity .1s;z-index:9;line-height:1.4}
   #tooltip .tt-state{font-weight:700;font-size:11px}
@@ -98,8 +102,13 @@
   #focusbar{margin-top:8px;background:var(--panel);border:1px solid #3a4a5e;border-radius:20px;padding:5px 6px 5px 15px;
     display:none;align-items:center;gap:12px;font-size:12.5px;box-shadow:0 6px 22px rgba(0,0,0,.4);max-width:100%}
   #focus-lbl{color:var(--muted)} #focus-lbl b{color:var(--ink)}
-  #focusbar .x{background:#26303d;border:1px solid var(--line);border-radius:14px;min-width:24px;height:24px;cursor:pointer;color:var(--ink);font-size:11px;line-height:1}
-  #focusbar .x:hover{background:#33414f}
+  #focusbar .x,#pathbar .x{background:#26303d;border:1px solid var(--line);border-radius:14px;min-width:24px;height:24px;cursor:pointer;color:var(--ink);font-size:11px;line-height:1}
+  #focusbar .x:hover,#pathbar .x:hover{background:#33414f}
+  #pathbar{margin-top:8px;background:var(--panel);border:1px solid #4f7aa0;border-radius:20px;padding:5px 6px;
+    display:none;align-items:center;gap:8px;font-size:12.5px;box-shadow:0 6px 22px rgba(0,0,0,.4);max-width:100%}
+  #path-lbl{color:var(--muted);padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:330px}
+  #path-lbl b{color:var(--ink)}
+  #path-lbl .stepn{color:#8fc1e8;font-weight:700}
   .axis-line{stroke:#2c3542;stroke-width:1.5}
   .axis-tick{stroke:#1c2530;stroke-width:1}
   .axis-lbl{fill:var(--faint);font-size:10px;text-anchor:middle;font-weight:600}
@@ -122,6 +131,10 @@
           <div id="cx-chips"></div>
         </div>
         <div class="card">
+          <h3>Sources <span>(click to tour)</span></h3>
+          <div id="src-list"></div>
+        </div>
+        <div class="card">
           <div class="btnrow">
             <button class="ui" id="btn-overview">Overview</button>
             <button class="ui" id="btn-expandall">Expand all</button>
@@ -141,7 +154,7 @@
             <button class="ui dbtn" data-depth="3">3</button>
             <button class="ui dbtn" data-depth="99">All</button>
           </div>
-          <div class="hint" style="margin-top:6px">Click a node to light up everything it connects to, out this many steps. Higher = follow the chain further.</div>
+          <div class="hint" style="margin-top:6px">Applies to <b>hub</b> clicks and the timeline view. Clicking a <b>claim</b> now follows its whole thread as a numbered path — step with ◀ ▶ or ←/→.</div>
         </div>
         <div class="card">
           <h3>Node states <span>(fill)</span></h3>
@@ -161,6 +174,12 @@
           <div id="search-results"></div>
         </div>
         <div id="focusbar"><span id="focus-lbl"></span><button class="x" id="focus-exit" title="Exit focus (Esc)">✕</button></div>
+        <div id="pathbar">
+          <button class="x" id="path-prev" title="Previous step (←)">◀</button>
+          <span id="path-lbl"></span>
+          <button class="x" id="path-next" title="Next step (→)">▶</button>
+          <button class="x" id="path-exit" title="Exit path (Esc)">✕</button>
+        </div>
       </div>
       <svg id="svg"></svg>
       <div id="tooltip"></div>
@@ -273,7 +292,105 @@
   // ---- state ----
   const expanded=new Set();      // complex ids currently drilled-in
   let sim=null, selected=null, labelsOn=true;
+  let path=null;                 // {ids:[nodeId], idx, info, stepOf:Map} — the "follow the thread" reading path
   const posCache={};             // id -> {x,y}
+
+  /* ================= THREAD PATH (the reading order through a thread) =================
+     Every claim node has exactly ONE home thread. threadPath() linearizes that thread
+     into the order you'd read it: topological along its inference edges (so premises
+     come before the "therefore"), tie-broken anchor → fact → interp → framing, then
+     authoring order. Clicking any claim enters this path; sources tour concatenates
+     the paths of all their threads. */
+  const nodeSeq = Object.fromEntries(D.nodes.map((n,i)=>[n.id,i]));   // authoring order
+  function threadPath(tid){
+    const ns=D.nodes.filter(n=>n.thread===tid);
+    const inSet=new Set(ns.map(n=>n.id));
+    const inTh=D.edges.filter(e=>!REC.has(e.type)&&inSet.has(e.from)&&inSet.has(e.to));
+    const indeg={}; ns.forEach(n=>indeg[n.id]=0);
+    const out={};
+    inTh.forEach(e=>{ indeg[e.to]++; (out[e.from]=out[e.from]||[]).push(e.to); });
+    const rank={anchor:0,fact:1,interp:2,framing:3,parked:9};
+    const key=id=>{ const n=nodeById[id]; return (rank[n.layer]??2)*1e6 + nodeSeq[id]; };
+    const avail=ns.filter(n=>!indeg[n.id]).map(n=>n.id), res=[], seen=new Set();
+    while(avail.length){
+      avail.sort((a,b)=>key(a)-key(b));
+      const id=avail.shift(); if(seen.has(id)) continue;
+      seen.add(id); res.push(id);
+      (out[id]||[]).forEach(t=>{ if(--indeg[t]===0) avail.push(t); });
+    }
+    ns.forEach(n=>{ if(!seen.has(n.id)) res.push(n.id); });   // cycle fallback
+    return res;
+  }
+
+  function enterPath(ids, info, startId){
+    if(!ids.length) return;
+    if(focus) exitFocusQuiet();
+    let grew=false;
+    ids.forEach(id=>{ const c=cxOf(nodeById[id].thread); if(c&&!expanded.has(c)){ expanded.add(c); grew=true; } });
+    path={ids, idx:0, info, stepOf:new Map(ids.map((id,i)=>[id,i]))};
+    if(grew) render();
+    document.getElementById("pathbar").style.display="flex";
+    const start=(startId&&path.stepOf.has(startId))? path.stepOf.get(startId) : 0;
+    if(grew) setTimeout(()=>gotoStep(start,true),90); else gotoStep(start,true);
+  }
+  function gotoStep(i,center=true){
+    if(!path) return;
+    path.idx=Math.max(0,Math.min(i,path.ids.length-1));
+    const id=path.ids[path.idx], n=nodeById[id], t=threadById[n.thread];
+    applyPath();
+    document.getElementById("path-lbl").innerHTML=
+      `<span class="stepn">${path.idx+1}/${path.ids.length}</span> · <b>${n.label}</b>`+
+      (t?`<span style="color:var(--faint)"> — ${t.id} · ${verdictLabel[t.verdict]||""}</span>`:"");
+    const sel=nodeG.selectAll("g.node").filter(x=>x.id===id);
+    const d=sel.empty()? null : sel.datum();
+    if(center&&d) centerOn(d);
+    renderClaimPanel(n);
+  }
+  function applyPath(){
+    if(!path) return;
+    const set=new Set(path.ids), cur=path.ids[path.idx];
+    // one-hop "exits" off the path stay faintly visible; the rest of the web recedes
+    const nb=new Set();
+    path.ids.forEach(id=>(adj[id]||new Set()).forEach(x=>{ if(!set.has(x)) nb.add(x); }));
+    nodeG.selectAll("g.node").classed("dimmed",n=>!set.has(n.id)&&!nb.has(n.id)).classed("semi",n=>nb.has(n.id));
+    labelG.selectAll("g.lab").classed("dimmed",n=>!set.has(n.id)&&!nb.has(n.id)).classed("semi",n=>nb.has(n.id));
+    linkG.selectAll("line")
+      .classed("dimmed",l=>{ const s=l.source.id||l.source, t=l.target.id||l.target; return !(set.has(s)||set.has(t)); })
+      .classed("semi",  l=>{ const s=l.source.id||l.source, t=l.target.id||l.target; return set.has(s)!==set.has(t); });
+    // numbered step badges + current-step ring
+    nodeG.selectAll("g.node").each(function(d){
+      const g=d3.select(this); g.selectAll(".stepbadge,.curmark").remove();
+      if(!set.has(d.id)) return;
+      const i=path.stepOf.get(d.id), isCur=d.id===cur;
+      const bg=g.append("g").attr("class","stepbadge");
+      bg.append("circle").attr("cy",20).attr("r",8)
+        .attr("fill",isCur?"#8fc1e8":"#131c26").attr("stroke",isCur?"#cfe8ff":"#4f7aa0").attr("stroke-width",1.2);
+      bg.append("text").attr("y",20).attr("dy",".33em").attr("text-anchor","middle")
+        .attr("font-size",9.5).attr("font-weight",700).attr("pointer-events","none")
+        .attr("fill",isCur?"#0c1014":"#9fc4e4").text(i+1);
+      if(isCur) g.append("circle").attr("class","curmark").attr("r",pinRadius(d)+3)
+        .attr("fill","none").attr("stroke","#8fc1e8").attr("stroke-width",1.6).attr("opacity",.9);
+    });
+  }
+  function exitPathQuiet(){
+    path=null; document.getElementById("pathbar").style.display="none";
+    nodeG.selectAll(".stepbadge,.curmark").remove();
+    nodeG.selectAll("g.node").classed("semi",false);
+    labelG.selectAll("g.lab").classed("semi",false);
+    linkG.selectAll("line").classed("semi",false);
+    syncSrcChips();
+  }
+  function exitPath(){ exitPathQuiet(); clearSelection(); }
+  function followThreadFrom(n){
+    if(path&&path.stepOf.has(n.id)){ gotoStep(path.stepOf.get(n.id)); return; }
+    enterPath(threadPath(n.thread), {kind:"thread",tid:n.thread}, n.id);
+  }
+  function tourSource(sid){
+    const ths=D.threads.filter(t=>srcOf(t.id)===sid && t.complex!=="RX" && t.complex!=="PL");
+    const ids=[];
+    ths.forEach(t=>threadPath(t.id).forEach(id=>{ if(nodeById[id].layer!=="parked") ids.push(id); }));
+    enterPath(ids, {kind:"source",sid});
+  }
 
   // ---- build the visible graph from `expanded` ----
   function buildGraph(){
@@ -422,6 +539,7 @@
     sim.alpha(0.9).restart();
     applyLabelVis();
     syncChips();
+    if(path) applyPath();
   }
 
   function superR(d){ return 30 + Math.min(d.nClaims,20)*1.1; }
@@ -497,14 +615,16 @@
   // ---- interactions ----
   function onClick(d){
     if(d.kind==="super"){ toggleComplex(d.cid); renderComplexPanel(d.cid); }
-    else selectNode(d);
+    else if(d.kind==="claim") followThreadFrom(d);       // claims: follow the whole thread as a path
+    else { if(path) exitPathQuiet(); selectNode(d); }    // hubs: keep the N-hop glow
   }
   function toggleComplex(cid){
     if(focus) exitFocusQuiet();
+    if(path) exitPathQuiet();
     if(expanded.has(cid)) expanded.delete(cid); else expanded.add(cid);
     selected=null; render();
   }
-  svg.on("click",()=>clearSelection());
+  svg.on("click",()=>{ if(path) exitPathQuiet(); clearSelection(); });
 
   function selectNode(d){
     selected=d.id;
@@ -516,9 +636,9 @@
   }
   function clearSelection(){
     selected=null;
-    nodeG.selectAll("g.node").classed("dimmed",false);
-    labelG.selectAll("g.lab").classed("dimmed",false);
-    linkG.selectAll("line").classed("dimmed",false);
+    nodeG.selectAll("g.node").classed("dimmed",false).classed("semi",false);
+    labelG.selectAll("g.lab").classed("dimmed",false).classed("semi",false);
+    linkG.selectAll("line").classed("dimmed",false).classed("semi",false);
     showEmpty();
   }
 
@@ -561,17 +681,24 @@
       field("Threads", th)+
       field("Node states in this complex", st);
   }
+  function linkify(s){ return String(s).replace(/https?:\/\/[^\s<)"]+/g,
+    u=>`<a href="${u}" target="_blank" rel="noopener" style="color:#7fb0d6">${u}</a>`); }
   function renderClaimPanel(d){
     showPanel(); const th=threadById[d.thread], cx=complexById[cxOf(d.thread)];
-    panel.head.innerHTML=`<div class="kicker">${cx?`<span style="color:${cx.color}">${cx.label} (${cx.id})</span> · `:""}${th?th.title:""} · ${d.layer} layer</div>`+
+    const onPath=path&&path.stepOf.has(d.id);
+    panel.head.innerHTML=`<div class="kicker">${onPath?`<span style="color:#8fc1e8">STEP ${path.stepOf.get(d.id)+1} OF ${path.ids.length}</span> · `:""}${cx?`<span style="color:${cx.color}">${cx.label} (${cx.id})</span> · `:""}${th?th.title:""} · ${d.layer} layer</div>`+
       `<h2>${d.label}</h2><span class="badge" style="background:${stateColorRaw[d.state]}">${d.state}</span>`;
     const src=sourceById[srcOf(d.thread)];
+    const links=(d.links&&d.links.length)?
+      field("Verification sources", d.links.map(l=>`<a class="srclink" href="${l.url}" target="_blank" rel="noopener">${l.label} ↗</a>`).join("")) : "";
     panel.body.innerHTML=
+      (onPath?`<div style="margin-bottom:12px"><span class="pbtn" data-step="-1">◀ Prev</span> <span class="pbtn" data-step="1">Next ▶</span></div>`:"")+
       `<div style="margin-bottom:12px"><span class="pbtn" data-focus-thread="${d.thread}">◷ Follow this thread on a timeline</span></div>`+
-      (src?`<div class="field"><div class="lab">Source</div><div class="val" style="font-size:12.5px">${src.url?`<a href="${src.url}" target="_blank" style="color:#7fb0d6;text-decoration:none">${src.label} ↗</a>`:src.label}</div></div>`:"")+
+      (src?`<div class="field"><div class="lab">Heard in</div><div class="val" style="font-size:12.5px">${src.url?`<a href="${src.url}" target="_blank" style="color:#7fb0d6;text-decoration:none">${src.label} ↗</a>`:src.label}</div></div>`:"")+
       field("Claim",d.claim)+
       (d.note?field("Finding",d.note):"")+
-      (d.primarySource?field("Primary source",`<span class="mono">${d.primarySource}</span>`):"")+
+      (d.primarySource?field("Primary source",`<span class="mono">${linkify(d.primarySource)}</span>`):"")+
+      links+
       `<div class="field"><div class="lab">Tags</div><div class="val">`+
         (d.date?`<span class="pill">📅 ${d.date}</span>`:"")+
         (d.concreteness?`<span class="pill">concreteness: ${d.concreteness}</span>`:"")+
@@ -585,9 +712,14 @@
       (d.crossN>1?`<span class="badge" style="background:#6f8aa8">⬥ CROSSES ${d.crossN} COMPLEXES</span>`:`<span class="badge" style="background:#46566a;color:#dfe">one complex</span>`);
     const cxList=(d._cx||[]).map(cid=>{const c=complexById[cid];
       return `<button class="conn" data-complex="${cid}"><span class="role" style="color:${c.color}">${c.label}</span><br><span style="color:var(--muted);font-size:11px">${expanded.has(cid)?"expanded":"click to expand"}</span></button>`;}).join("");
+    const hubThs=[...new Set(D.nodes.filter(n=>(n.entities||[]).includes(d.id)).map(n=>n.thread))]
+      .filter(tid=>threadById[tid]&&threadById[tid].complex!=="RX");
+    const follow=hubThs.map(tid=>{ const t=threadById[tid], c=complexById[t.complex]||{};
+      return `<button class="conn" data-follow="${tid}"><span class="role" style="color:${c.color||'#9ab'}">${t.id} · ${verdictLabel[t.verdict]||""} · ${sourceById[srcOf(tid)]?.speaker||""}</span><br>${t.title}</button>`; }).join("");
     panel.body.innerHTML=
       `<div style="margin-bottom:12px"><span class="pbtn" data-focus-entity="${d.id}">◷ Timeline of everything touching ${d.label}</span></div>`+
       (d.note?field("Why it matters",d.note):"")+
+      (follow?field("Follow a thread through this hub",follow):"")+
       field("Complexes welded here",cxList)+field("Linked nodes",connFor(d.id));
   }
   function connFor(id){
@@ -606,6 +738,9 @@
 
   // panel delegation
   document.getElementById("panel").addEventListener("click",ev=>{
+    const st=ev.target.closest("[data-step]"); if(st&&path){ gotoStep(path.idx+(+st.getAttribute("data-step"))); return; }
+    const fw=ev.target.closest("[data-follow]"); if(fw){ const tid=fw.getAttribute("data-follow");
+      if(focus) exitFocusQuiet(); enterPath(threadPath(tid),{kind:"thread",tid}); return; }
     const tg=ev.target.closest("[data-toggle]"); if(tg){ toggleComplex(tg.getAttribute("data-toggle")); renderComplexPanel(tg.getAttribute("data-toggle")); return; }
     const cb=ev.target.closest("[data-complex]"); if(cb){ const cid=cb.getAttribute("data-complex"); if(!expanded.has(cid)){expanded.add(cid);render();} renderComplexPanel(cid); return; }
     const ft=ev.target.closest("[data-focus-thread]"); if(ft){ enterFocus("thread", ft.getAttribute("data-focus-thread")); return; }
@@ -614,11 +749,12 @@
     const tb=ev.target.closest("[data-thread]"); if(tb){ const cid=cxOf(tb.getAttribute("data-thread")); if(!expanded.has(cid)){expanded.add(cid);render();} return; }
   });
   function jumpToNode(id){
-    // ensure its complex expanded (if claim) then select
     const n=nodeById[id];
-    if(n){ const c=cxOf(n.thread); if(!expanded.has(c)){ expanded.add(c); render(); } }
-    setTimeout(()=>{ const g=nodeG.selectAll("g.node").filter(d=>d.id===id).datum();
-      if(g){ centerOn(g); selectNode(g); } },80);
+    if(n){ followThreadFrom(n); return; }                    // claim → follow its thread path
+    const e=entById[id];                                     // hub → make it visible, then N-hop select
+    if(e && !(e._cx||[]).some(c=>expanded.has(c)) && e._cx.length){ expanded.add(e._cx[0]); render(); }
+    setTimeout(()=>{ const sel=nodeG.selectAll("g.node").filter(d=>d.id===id);
+      if(!sel.empty()){ const g=sel.datum(); centerOn(g); if(path) exitPathQuiet(); selectNode(g); } },80);
   }
   function centerOn(d){ const t=d3.zoomTransform(svg.node());
     svg.transition().duration(450).call(zoom.transform, d3.zoomIdentity.translate(W/2-d.x*t.k,H/2-d.y*t.k).scale(t.k)); }
@@ -637,6 +773,24 @@
     if(!on&&tw) tw.remove();
   }); }
 
+  // ---- sources menu (one row per podcast; click = tour its claims in order) ----
+  const srcPalette=["#d9a13d","#5fb0a5","#c96f9d","#7f9fd6","#a5c05f","#c98f6f","#8f7fd6","#6fb87f"];
+  const srcWrap=document.getElementById("src-list");
+  D.sources.forEach((s,i)=>{
+    const ths=D.threads.filter(t=>srcOf(t.id)===s.id && t.complex!=="RX" && t.complex!=="PL");
+    const nN=D.nodes.filter(n=>ths.some(t=>t.id===n.thread)&&n.layer!=="parked").length;
+    if(!nN) return;
+    const el=document.createElement("div"); el.className="chip"; el.dataset.src=s.id; el.title=s.label;
+    el.innerHTML=`<span class="sw" style="background:${srcPalette[i%srcPalette.length]}"></span>`+
+      `<span>${s.speaker.split("/")[0].trim()}<br><span style="font-size:10px;color:var(--faint)">${s.show}</span></span>`+
+      `<span class="ct">${nN}n</span>`;
+    el.onclick=()=>{ document.querySelectorAll(".chip[data-src]").forEach(x=>x.classList.remove("exp"));
+      el.classList.add("exp"); tourSource(s.id); };
+    srcWrap.appendChild(el);
+  });
+  function syncSrcChips(){ if(!path||path.info.kind!=="source")
+    document.querySelectorAll(".chip[data-src]").forEach(x=>x.classList.remove("exp")); }
+
   // ---- legends ----
   const sl=document.getElementById("state-legend");
   [["Verified","#4f9d69"],["Partially Verified","#d99a2b"],["Falsified","#e0533d"],["Source Says Otherwise","#c77b3b"],["Source Not Found","#7c8694"],["Unverifiable","#5b7fa6"],["Contested (sources clash)","#d2509f"]]
@@ -650,9 +804,19 @@
     .forEach(([t,c,s])=> el.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swl" style="border-top-color:${c};border-top-style:${s};border-top-width:3px"></span>${t}</div>`));
 
   // ---- buttons ----
-  document.getElementById("btn-overview").onclick=()=>{ if(focus) exitFocusQuiet(); expanded.clear(); selected=null; render(); clearSelection();
+  document.getElementById("btn-overview").onclick=()=>{ if(focus) exitFocusQuiet(); if(path) exitPathQuiet(); expanded.clear(); selected=null; render(); clearSelection();
     svg.transition().duration(500).call(zoom.transform,d3.zoomIdentity); };
   document.getElementById("btn-expandall").onclick=()=>{ if(focus) exitFocusQuiet(); D.complexes.forEach(c=>expanded.add(c.id)); render(); };
+  // path stepper
+  document.getElementById("path-prev").onclick=()=>{ if(path) gotoStep(path.idx-1); };
+  document.getElementById("path-next").onclick=()=>{ if(path) gotoStep(path.idx+1); };
+  document.getElementById("path-exit").onclick=()=>exitPath();
+  document.addEventListener("keydown",ev=>{
+    if(!path||focus) return;
+    if(ev.target&&(ev.target.tagName==="INPUT"||ev.target.tagName==="TEXTAREA")) return;
+    if(ev.key==="ArrowRight"){ ev.preventDefault(); gotoStep(path.idx+1); }
+    else if(ev.key==="ArrowLeft"){ ev.preventDefault(); gotoStep(path.idx-1); }
+  });
   document.getElementById("btn-reset").onclick=()=>{ svg.transition().duration(450).call(zoom.transform,d3.zoomIdentity); if(sim) sim.alpha(0.6).restart(); };
   document.getElementById("btn-labels").onclick=()=>{ labelsOn=!labelsOn; applyLabelVis(); };
   document.getElementById("btn-unpin").onclick=unpinAll;
@@ -661,6 +825,7 @@
   document.querySelectorAll(".dbtn").forEach(b=> b.onclick=()=>{
     traceDepth = b.dataset.depth==="99" ? Infinity : +b.dataset.depth; syncDepthBtns();
     if(focus) renderFocus();
+    else if(path) applyPath();
     else if(selected && nodeById[selected]) { const n=nodeG.selectAll("g.node").filter(d=>d.id===selected).datum(); if(n) selectNode(n); }
   });
   syncDepthBtns();
@@ -709,9 +874,10 @@
   clearEl.onclick=()=>{ searchEl.value=""; clearEl.style.display="none"; resEl.style.display="none"; searchEl.focus(); };
   document.addEventListener("click",ev=>{ if(!ev.target.closest("#searchwrap")) resEl.style.display="none"; });
   document.getElementById("focus-exit").onclick=()=>exitFocus();
-  document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&focus) exitFocus(); });
+  document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"){ if(focus) exitFocus(); else if(path) exitPath(); } });
 
   function enterFocus(type,id){
+    if(path) exitPathQuiet();
     focus={type,id}; resEl.style.display="none";
     const lbl = type==="thread" ? threadById[id].title : (entById[id]?entById[id].label:id);
     const kind = type==="thread" ? "Thread" : "Hub";

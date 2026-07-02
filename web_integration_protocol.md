@@ -61,6 +61,8 @@ Walk the conflicts (Disprove + Contest buckets) deliberately:
 ### Step 4 — Record provenance
 Every state change and every reconciliation gets a dated log entry naming the source that drove it. The web should be able to answer, for any node, "how did this come to be the assessment, and who moved it?"
 
+**Capture verification URLs.** A node's `primarySource` names what verified it; its `links` field (`links:[{label,url},...]` in `chronoweb_data.js`) is the clickable trail — the actual documents/pages used to resolve the node's state, rendered in the viewer's detail panel. From now on, every node whose verifying source exists online ships with at least one `links` entry, captured *during* verification (finding the URL again later is rework). Only URLs actually consulted and confirmed to resolve — never a plausible-looking guess. If the source is offline-only (a book, an archive box), say so in `primarySource` and omit `links`.
+
 ---
 
 ## 4. The `Disprove` bar (so it doesn't get abused)

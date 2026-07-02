@@ -21,10 +21,16 @@
    FIELD REFERENCE
    ---------------
    complex: { id, label, color }                       id ∈ MIC | FIC | TIC | PL
-   thread:  { id, complex, title, claim, speaker, source, verdict, color }
+   source:  { id, label, speaker, show, url }          provenance registry (one per podcast)
+   thread:  { id, complex, srcId, title, claim, speaker, source, verdict, color }
             verdict ∈ FAILS | PARTIALLY_HOLDS | LARGELY_HOLDS | MIXED | OPEN
+            srcId → sources registry (omitted = src_dixon, the original source)
    node:    { id, thread, label, claim, layer, date, concreteness, sourcing,
-              state, note, primarySource, entities:[entityId,...] }
+              state, note, primarySource, links:[{label,url},...],
+              entities:[entityId,...] }
+            links = clickable verification sources shown in the panel — the URLs
+            actually used to resolve the node's state. REQUIRED on new nodes
+            wherever the verifying source is online (see web_integration_protocol.md §4).
             layer ∈ fact | interp | framing | anchor | parked
             state ∈ Verified | Partially Verified | Falsified | Misattributed
                   | Source Not Found | Source Says Otherwise | Unverifiable | Open
@@ -234,7 +240,10 @@ window.CHRONOWEB_DATA = {
       claim:"JFK signed Executive Order 11110 re: silver certificates.",
       date:"1963-06-04", concreteness:"High", sourcing:"Implied (public doc)",
       state:"Verified", note:"Jun 4 1963.",
-      primarySource:"American Presidency Project / Federal Register", entities:["eo11110"] },
+      primarySource:"American Presidency Project / Federal Register",
+      links:[{label:"EO 11110 full text — American Presidency Project",
+              url:"https://www.presidency.ucsb.edu/documents/executive-order-11110-amendment-executive-order-no-10289-amended-relating-the-performance"}],
+      entities:["eo11110"] },
     { id:"n_1c_fire", thread:"T1", label:"Fired Allen Dulles", layer:"fact",
       claim:"JFK fired / forced out CIA Director Allen Dulles.",
       date:"1961-11", concreteness:"High", sourcing:"Public",
@@ -249,7 +258,10 @@ window.CHRONOWEB_DATA = {
       claim:"JFK ordered a troop drawdown via NSAM 263.",
       date:"1963-10-11", concreteness:"High", sourcing:"Public doc",
       state:"Verified", note:"Approved Oct 11 1963; endorsed withdrawal of 1,000 by end-1963.",
-      primarySource:"NSAM 263 text", entities:["nsam263","mic"] },
+      primarySource:"NSAM 263 text",
+      links:[{label:"NSAM 263 text — FRUS 1961–63 Vol. IV, doc 194",
+              url:"https://history.state.gov/historicaldocuments/frus1961-63v04/d194"}],
+      entities:["nsam263","mic"] },
     { id:"n_1e_fact", thread:"T1", label:"Peace speech / test ban / steel", layer:"fact",
       claim:"American University 'peace speech', Partial Test Ban Treaty, 1962 steel-price confrontation.",
       date:"1963-06-10", concreteness:"High", sourcing:"Public",
@@ -350,7 +362,10 @@ window.CHRONOWEB_DATA = {
       claim:"A loan simultaneously creates a matching deposit — new money as a digital entry.",
       concreteness:"High", sourcing:"Named (BoE 2014)",
       state:"Verified", note:"Bank of England, 'Money creation in the modern economy' (2014). Standard central-bank description — the conspiracy-coded claim is actually correct.",
-      primarySource:"Bank of England (2014)", entities:["boe","fic"] },
+      primarySource:"Bank of England (2014)",
+      links:[{label:"BoE — Money creation in the modern economy (2014 Q1)",
+              url:"https://www.bankofengland.co.uk/quarterly-bulletin/2014/q1/money-creation-in-the-modern-economy"}],
+      entities:["boe","fic"] },
     { id:"n_fic1_caveat", thread:"FIC1", label:"…but banks don't create ALL money", layer:"interp",
       claim:"Central bank issues base money/reserves; lending constrained by capital, regulation, demand.",
       concreteness:"High", sourcing:"Named",
@@ -481,7 +496,10 @@ window.CHRONOWEB_DATA = {
       claim:"The Mag 7 share is almost 50%.",
       concreteness:"High", sourcing:"None",
       state:"Falsified", note:"Actual ≈ 34–35% (peak ~34.5% Aug 2025). Overstated by ~15 points — the recurring 'Mag-7 ≈ 50%' inflation tic.",
-      primarySource:"S&P index weights", entities:["mag7"] },
+      primarySource:"S&P index weights",
+      links:[{label:"S&P 500 constituent weights (live) — Slickcharts",
+              url:"https://www.slickcharts.com/sp500"}],
+      entities:["mag7"] },
 
     /* ============================== TIC-2 ============================== */
     { id:"n_tic2_n1", thread:"TIC2", label:"Algorithms shape what users see", layer:"fact",
@@ -524,7 +542,10 @@ window.CHRONOWEB_DATA = {
       claim:"A secret meeting occurred on Jekyll Island in Nov 1910.",
       date:"1910-11", concreteness:"High", sourcing:"Implied",
       state:"Verified", note:"No longer disputed even by the Fed. Participants kept it secret until the 1930s.",
-      primarySource:"Federal Reserve History; Richmond Fed", entities:["jekyll","fed","griffin"] },
+      primarySource:"Federal Reserve History; Richmond Fed",
+      links:[{label:"Fed's own history — The Meeting at Jekyll Island",
+              url:"https://www.federalreservehistory.org/essays/jekyll-island-conference"}],
+      entities:["jekyll","fed","griffin"] },
     { id:"n_ga_n2", thread:"GA", label:"Attendees were the largest banks", layer:"fact",
       claim:"Attendees represented the largest US banks.",
       date:"1910-11", concreteness:"High", sourcing:"Implied",
@@ -725,7 +746,10 @@ window.CHRONOWEB_DATA = {
       claim:"The 1992 Kerry–Brown BCCI report documents the bank procuring underage/teenage girls for powerful clients.",
       date:"1992", concreteness:"High", sourcing:"Named (the report)",
       state:"Verified", note:"Documents a 'protocol department' procuring 'virgin women from the villages, ages 16–20,' paying families, supplying royalty/Gulf clients. 16 is a minor; the pattern is trafficking-like. WaPo (1992) confirms the testimony.",
-      primarySource:"Kerry–Brown 'BCCI Affair' report; WaPo 1992", entities:["bcci"] },
+      primarySource:"Kerry–Brown 'BCCI Affair' report; WaPo 1992",
+      links:[{label:"'The BCCI Affair' — full Senate report (FAS mirror)",
+              url:"https://irp.fas.org/congress/1992_rpt/bcci/"}],
+      entities:["bcci"] },
     { id:"n_we_n2", thread:"WE", label:"…citing it as established is legitimate", layer:"interp",
       claim:"Citing the Senate report as establishing institutional trafficking is legitimate.",
       concreteness:"High", sourcing:"Named",
