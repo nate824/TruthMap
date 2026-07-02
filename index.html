@@ -44,6 +44,7 @@
   button.ui{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:7px;
     padding:6px 8px;font-size:11.5px;cursor:pointer}
   button.ui:hover{background:#26303d}
+  button.ui.dbtn.on{background:#2f4a63;border-color:#4f7aa0;color:#dff}
   .hint{font-size:11px;color:var(--faint);line-height:1.45}
   #panel{width:340px;flex:0 0 340px;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto}
   #panel .phead{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
@@ -133,6 +134,16 @@
           <div class="hint" style="margin-top:8px">Big discs are the four <b>complexes</b>. Click one to branch it into its claims and hubs; click again to fold it back. Drag any node to <b>pin it in place</b> (dashed ring); double-click a node to release it.</div>
         </div>
         <div class="card">
+          <h3>Trace depth <span>(hops a click follows)</span></h3>
+          <div class="btnrow" id="depth-row">
+            <button class="ui dbtn" data-depth="1">1</button>
+            <button class="ui dbtn" data-depth="2">2</button>
+            <button class="ui dbtn" data-depth="3">3</button>
+            <button class="ui dbtn" data-depth="99">All</button>
+          </div>
+          <div class="hint" style="margin-top:6px">Click a node to light up everything it connects to, out this many steps. Higher = follow the chain further.</div>
+        </div>
+        <div class="card">
           <h3>Node states <span>(fill)</span></h3>
           <div id="state-legend"></div>
         </div>
@@ -185,6 +196,21 @@
   const recDash  = {"corroborates":"1 6","clarifies":"7 4","contests":"5 3 2 3","disproves":"3 3","parallels":"2 5"};
   const sourceById = Object.fromEntries((D.sources||[]).map(s=>[s.id,s]));
   const srcOf = threadId => (threadById[threadId]&&threadById[threadId].srcId) || "src_dixon";
+
+  // ---- multi-hop tracing ----
+  let traceDepth = 3;                 // how many hops a selection / timeline ripples out
+  let adj = {};                       // adjacency over the CURRENT visible web (rebuilt each render)
+  // claim↔claim adjacency over all inference + reconciliation edges (for timeline expansion)
+  const edgeAdj = {};
+  D.edges.forEach(e=>{ (edgeAdj[e.from]=edgeAdj[e.from]||new Set()).add(e.to);
+                       (edgeAdj[e.to]  =edgeAdj[e.to]  ||new Set()).add(e.from); });
+  function reachable(seeds, depth, map){
+    const seen=new Set(seeds); let frontier=[...seeds]; const lim=(depth===Infinity)?1e9:depth;
+    for(let d=0; d<lim && frontier.length; d++){ const nxt=[];
+      frontier.forEach(id=>(map[id]||new Set()).forEach(nb=>{ if(!seen.has(nb)){ seen.add(nb); nxt.push(nb);} }));
+      frontier=nxt; }
+    return seen;
+  }
   const verdictLabel = {"FAILS":"FAILS","PARTIALLY_HOLDS":"PARTIALLY HOLDS","LARGELY_HOLDS":"LARGELY HOLDS","MIXED":"MIXED","OPEN":"OPEN"};
   const verdictColor = {"FAILS":"#e0533d","PARTIALLY_HOLDS":"#d99a2b","LARGELY_HOLDS":"#4f9d69","MIXED":"#c77b3b","OPEN":"#7c8694"};
 
@@ -338,6 +364,9 @@
   // ---- render ----
   function render(){
     const {nodes,links}=buildGraph();
+    // adjacency over the visible web, for multi-hop selection highlighting
+    adj={}; links.forEach(l=>{ const s=l.source.id||l.source, t=l.target.id||l.target;
+      (adj[s]=adj[s]||new Set()).add(t); (adj[t]=adj[t]||new Set()).add(s); });
     if(sim) sim.stop();
     linkG.selectAll("*").remove(); linkLblG.selectAll("*").remove();
     nodeG.selectAll("*").remove(); labelG.selectAll("*").remove();
@@ -479,12 +508,10 @@
 
   function selectNode(d){
     selected=d.id;
-    const keep=new Set([d.id]);
-    sim.force("link"); // noop
-    linkG.selectAll("line").each(function(l){ if(l.source.id===d.id||l.target.id===d.id){ keep.add(l.source.id); keep.add(l.target.id);} });
+    const keep=reachable([d.id], traceDepth, adj);   // whole reachable subgraph out to traceDepth hops
     nodeG.selectAll("g.node").classed("dimmed",n=>!keep.has(n.id));
     labelG.selectAll("g.lab").classed("dimmed",n=>!keep.has(n.id));
-    linkG.selectAll("line").classed("dimmed",l=>!(l.source.id===d.id||l.target.id===d.id));
+    linkG.selectAll("line").classed("dimmed",l=>!(keep.has(l.source.id)&&keep.has(l.target.id)));
     if(d.kind==="claim") renderClaimPanel(d); else renderHubPanel(d);
   }
   function clearSelection(){
@@ -629,6 +656,14 @@
   document.getElementById("btn-reset").onclick=()=>{ svg.transition().duration(450).call(zoom.transform,d3.zoomIdentity); if(sim) sim.alpha(0.6).restart(); };
   document.getElementById("btn-labels").onclick=()=>{ labelsOn=!labelsOn; applyLabelVis(); };
   document.getElementById("btn-unpin").onclick=unpinAll;
+  // trace-depth control
+  function syncDepthBtns(){ document.querySelectorAll(".dbtn").forEach(b=>b.classList.toggle("on", (+b.dataset.depth===traceDepth)||(b.dataset.depth==="99"&&traceDepth===Infinity))); }
+  document.querySelectorAll(".dbtn").forEach(b=> b.onclick=()=>{
+    traceDepth = b.dataset.depth==="99" ? Infinity : +b.dataset.depth; syncDepthBtns();
+    if(focus) renderFocus();
+    else if(selected && nodeById[selected]) { const n=nodeG.selectAll("g.node").filter(d=>d.id===selected).datum(); if(n) selectNode(n); }
+  });
+  syncDepthBtns();
 
   window.addEventListener("resize",()=>{ W=stage.clientWidth;H=stage.clientHeight; svg.attr("viewBox",[0,0,W,H]); computeAnchors();
     if(focus){ renderFocus(); } else if(sim) sim.alpha(0.3).restart(); });
@@ -637,7 +672,7 @@
   /* Search a person/org/event/thread → isolate its subgraph and lay it on a
      hybrid timeline: dated facts on a horizontal time axis, interpretive /
      framing nodes branching off. The "chronograph" reading view.           */
-  let focus=null, focusMode="date", focusScale=null;
+  let focus=null, focusMode="date", focusScale=null, focusAdj={};
   const searchEl=document.getElementById("search"),
         resEl=document.getElementById("search-results"),
         clearEl=document.getElementById("search-clear"),
@@ -700,13 +735,19 @@
     W=stage.clientWidth; H=stage.clientHeight; svg.attr("viewBox",[0,0,W,H]);
     linkG.selectAll("*").remove(); linkLblG.selectAll("*").remove(); nodeG.selectAll("*").remove(); labelG.selectAll("*").remove();
 
-    // gather focused nodes
-    let NF;
-    if(focus.type==="thread") NF=D.nodes.filter(n=>n.thread===focus.id);
-    else NF=D.nodes.filter(n=>(n.entities||[]).includes(focus.id));
-    NF=NF.map(n=>Object.assign({},n,{kind:"claim"}));
+    // gather focused nodes: the seed set, expanded outward through inference +
+    // reconciliation edges to traceDepth hops (so a 2-node thread still traces its chain)
+    let seeds;
+    if(focus.type==="thread") seeds=D.nodes.filter(n=>n.thread===focus.id).map(n=>n.id);
+    else seeds=D.nodes.filter(n=>(n.entities||[]).includes(focus.id)).map(n=>n.id);
+    const nfIds=reachable(seeds, traceDepth, edgeAdj);
+    const seedSet=new Set(seeds);
+    let NF=D.nodes.filter(n=>nfIds.has(n.id)).map(n=>Object.assign({},n,{kind:"claim",_seed:seedSet.has(n.id)}));
     const pos=Object.fromEntries(NF.map(n=>[n.id,n]));
     const E=D.edges.filter(e=>pos[e.from]&&pos[e.to]).map(e=>Object.assign({},e));
+    // adjacency within the focus view for multi-hop node selection
+    focusAdj={}; E.forEach(e=>{ (focusAdj[e.from]=focusAdj[e.from]||new Set()).add(e.to);
+                                (focusAdj[e.to]  =focusAdj[e.to]  ||new Set()).add(e.from); });
 
     const marginL=124, marginR=64, topY=104, axisY=H-56, spineY=Math.round((topY+axisY)/2);
     const dated=NF.filter(n=>yearOf(n.date)!=null);
@@ -757,6 +798,7 @@
     // nodes
     const node=nodeG.selectAll("g.node").data(NF,d=>d.id).join("g").attr("class","node")
       .attr("transform",d=>`translate(${d._x},${d._y})`)
+      .style("opacity",d=>d._seed?1:0.62)
       .on("mouseenter",(ev,d)=>showTip(ev,d)).on("mousemove",moveTip).on("mouseleave",hideTip)
       .on("click",(ev,d)=>{ ev.stopPropagation(); selectFocusNode(d.id); });
     node.each(function(d){ drawNode(d3.select(this),d); });
@@ -774,11 +816,10 @@
   function selectFocusNode(id){
     const pos=renderFocus._pos; if(!pos||!pos[id]) return;
     const d=pos[id]; selected=id;
-    const keep=new Set([id]);
-    renderFocus._E.forEach(e=>{ if(e.from===id||e.to===id){ keep.add(e.from); keep.add(e.to); } });
+    const keep=reachable([id], traceDepth, focusAdj);
     nodeG.selectAll("g.node").classed("dimmed",n=>!keep.has(n.id));
     labelG.selectAll("g.lab").classed("dimmed",n=>!keep.has(n.id));
-    linkG.selectAll("line.fe").classed("dimmed",e=>!(e.from===id||e.to===id));
+    linkG.selectAll("line.fe").classed("dimmed",e=>!(keep.has(e.from)&&keep.has(e.to)));
     renderClaimPanel(nodeById[id]||d);
   }
 
