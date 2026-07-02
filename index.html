@@ -77,6 +77,34 @@
   #tooltip{position:absolute;pointer-events:none;background:#070a0e;border:1px solid var(--line);border-radius:7px;
     padding:7px 10px;font-size:12px;max-width:250px;opacity:0;transition:opacity .1s;z-index:9;line-height:1.4}
   #tooltip .tt-state{font-weight:700;font-size:11px}
+  /* ---- Focus Mode: search + timeline ---- */
+  #topbar{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;width:440px;max-width:52vw}
+  #searchwrap{position:relative;width:100%}
+  #search{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:9px;color:var(--ink);
+    padding:9px 32px 9px 32px;font-size:13px;box-shadow:0 6px 22px rgba(0,0,0,.4);outline:none}
+  #search:focus{border-color:#3a4a5e}
+  #search::placeholder{color:var(--faint)}
+  #search-ic{position:absolute;left:11px;top:8px;color:var(--faint);font-size:14px;pointer-events:none}
+  #search-clear{position:absolute;right:10px;top:8px;color:var(--faint);cursor:pointer;font-size:12px;display:none}
+  #search-results{position:absolute;top:44px;left:0;width:100%;background:var(--panel);border:1px solid var(--line);
+    border-radius:9px;overflow:hidden;box-shadow:0 12px 34px rgba(0,0,0,.55);display:none;max-height:340px;overflow-y:auto}
+  .sr{padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:8px}
+  .sr:last-child{border-bottom:none}
+  .sr:hover,.sr.sel{background:var(--panel2)}
+  .sr .tag{font-size:9px;text-transform:uppercase;letter-spacing:.7px;padding:2px 6px;border-radius:4px;color:#0c1014;font-weight:700;flex:0 0 auto}
+  .sr .t{font-size:12.5px;color:var(--ink)}
+  .sr .s{font-size:11px;color:var(--muted)}
+  #focusbar{margin-top:8px;background:var(--panel);border:1px solid #3a4a5e;border-radius:20px;padding:5px 6px 5px 15px;
+    display:none;align-items:center;gap:12px;font-size:12.5px;box-shadow:0 6px 22px rgba(0,0,0,.4);max-width:100%}
+  #focus-lbl{color:var(--muted)} #focus-lbl b{color:var(--ink)}
+  #focusbar .x{background:#26303d;border:1px solid var(--line);border-radius:14px;min-width:24px;height:24px;cursor:pointer;color:var(--ink);font-size:11px;line-height:1}
+  #focusbar .x:hover{background:#33414f}
+  .axis-line{stroke:#2c3542;stroke-width:1.5}
+  .axis-tick{stroke:#1c2530;stroke-width:1}
+  .axis-lbl{fill:var(--faint);font-size:10px;text-anchor:middle;font-weight:600}
+  .branch-conn{stroke:#3a4757;stroke-width:1;stroke-opacity:.5}
+  .focus-date{font-size:9px;fill:var(--faint);text-anchor:middle;pointer-events:none;paint-order:stroke;stroke:var(--bg);stroke-width:3px}
+  .lane-hdr{fill:var(--muted);font-size:11px;font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:4px}
 </style>
 </head>
 <body>
@@ -112,6 +140,16 @@
           <h3>Inference edges</h3>
           <div id="edge-legend"></div>
         </div>
+      </div>
+      <div id="topbar">
+        <div id="searchwrap">
+          <span id="search-ic">⌕</span>
+          <input id="search" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Search a person, org, event or thread — e.g. JFK, Federal Reserve, Epstein…" />
+          <span id="search-clear">✕</span>
+          <div id="search-results"></div>
+        </div>
+        <div id="focusbar"><span id="focus-lbl"></span><button class="x" id="focus-exit" title="Exit focus (Esc)">✕</button></div>
       </div>
       <svg id="svg"></svg>
       <div id="tooltip"></div>
@@ -433,6 +471,7 @@
     else selectNode(d);
   }
   function toggleComplex(cid){
+    if(focus) exitFocusQuiet();
     if(expanded.has(cid)) expanded.delete(cid); else expanded.add(cid);
     selected=null; render();
   }
@@ -501,6 +540,7 @@
       `<h2>${d.label}</h2><span class="badge" style="background:${stateColorRaw[d.state]}">${d.state}</span>`;
     const src=sourceById[srcOf(d.thread)];
     panel.body.innerHTML=
+      `<div style="margin-bottom:12px"><span class="pbtn" data-focus-thread="${d.thread}">◷ Follow this thread on a timeline</span></div>`+
       (src?`<div class="field"><div class="lab">Source</div><div class="val" style="font-size:12.5px">${src.url?`<a href="${src.url}" target="_blank" style="color:#7fb0d6;text-decoration:none">${src.label} ↗</a>`:src.label}</div></div>`:"")+
       field("Claim",d.claim)+
       (d.note?field("Finding",d.note):"")+
@@ -518,7 +558,9 @@
       (d.crossN>1?`<span class="badge" style="background:#6f8aa8">⬥ CROSSES ${d.crossN} COMPLEXES</span>`:`<span class="badge" style="background:#46566a;color:#dfe">one complex</span>`);
     const cxList=(d._cx||[]).map(cid=>{const c=complexById[cid];
       return `<button class="conn" data-complex="${cid}"><span class="role" style="color:${c.color}">${c.label}</span><br><span style="color:var(--muted);font-size:11px">${expanded.has(cid)?"expanded":"click to expand"}</span></button>`;}).join("");
-    panel.body.innerHTML=(d.note?field("Why it matters",d.note):"")+
+    panel.body.innerHTML=
+      `<div style="margin-bottom:12px"><span class="pbtn" data-focus-entity="${d.id}">◷ Timeline of everything touching ${d.label}</span></div>`+
+      (d.note?field("Why it matters",d.note):"")+
       field("Complexes welded here",cxList)+field("Linked nodes",connFor(d.id));
   }
   function connFor(id){
@@ -539,7 +581,9 @@
   document.getElementById("panel").addEventListener("click",ev=>{
     const tg=ev.target.closest("[data-toggle]"); if(tg){ toggleComplex(tg.getAttribute("data-toggle")); renderComplexPanel(tg.getAttribute("data-toggle")); return; }
     const cb=ev.target.closest("[data-complex]"); if(cb){ const cid=cb.getAttribute("data-complex"); if(!expanded.has(cid)){expanded.add(cid);render();} renderComplexPanel(cid); return; }
-    const nb=ev.target.closest("[data-node]"); if(nb){ jumpToNode(nb.getAttribute("data-node")); return; }
+    const ft=ev.target.closest("[data-focus-thread]"); if(ft){ enterFocus("thread", ft.getAttribute("data-focus-thread")); return; }
+    const fe=ev.target.closest("[data-focus-entity]"); if(fe){ enterFocus("entity", fe.getAttribute("data-focus-entity")); return; }
+    const nb=ev.target.closest("[data-node]"); if(nb){ if(focus){ selectFocusNode(nb.getAttribute("data-node")); } else jumpToNode(nb.getAttribute("data-node")); return; }
     const tb=ev.target.closest("[data-thread]"); if(tb){ const cid=cxOf(tb.getAttribute("data-thread")); if(!expanded.has(cid)){expanded.add(cid);render();} return; }
   });
   function jumpToNode(id){
@@ -579,15 +623,164 @@
     .forEach(([t,c,s])=> el.insertAdjacentHTML("beforeend",`<div class="legend-row"><span class="swl" style="border-top-color:${c};border-top-style:${s};border-top-width:3px"></span>${t}</div>`));
 
   // ---- buttons ----
-  document.getElementById("btn-overview").onclick=()=>{ expanded.clear(); selected=null; render(); clearSelection();
+  document.getElementById("btn-overview").onclick=()=>{ if(focus) exitFocusQuiet(); expanded.clear(); selected=null; render(); clearSelection();
     svg.transition().duration(500).call(zoom.transform,d3.zoomIdentity); };
-  document.getElementById("btn-expandall").onclick=()=>{ D.complexes.forEach(c=>expanded.add(c.id)); render(); };
+  document.getElementById("btn-expandall").onclick=()=>{ if(focus) exitFocusQuiet(); D.complexes.forEach(c=>expanded.add(c.id)); render(); };
   document.getElementById("btn-reset").onclick=()=>{ svg.transition().duration(450).call(zoom.transform,d3.zoomIdentity); if(sim) sim.alpha(0.6).restart(); };
   document.getElementById("btn-labels").onclick=()=>{ labelsOn=!labelsOn; applyLabelVis(); };
   document.getElementById("btn-unpin").onclick=unpinAll;
 
   window.addEventListener("resize",()=>{ W=stage.clientWidth;H=stage.clientHeight; svg.attr("viewBox",[0,0,W,H]); computeAnchors();
-    if(sim) sim.alpha(0.3).restart(); });
+    if(focus){ renderFocus(); } else if(sim) sim.alpha(0.3).restart(); });
+
+  /* ============================ FOCUS MODE ============================ */
+  /* Search a person/org/event/thread → isolate its subgraph and lay it on a
+     hybrid timeline: dated facts on a horizontal time axis, interpretive /
+     framing nodes branching off. The "chronograph" reading view.           */
+  let focus=null, focusMode="date", focusScale=null;
+  const searchEl=document.getElementById("search"),
+        resEl=document.getElementById("search-results"),
+        clearEl=document.getElementById("search-clear"),
+        focusbar=document.getElementById("focusbar"),
+        focusLbl=document.getElementById("focus-lbl");
+
+  function yearOf(d){ if(!d) return null; const m=/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/.exec(String(d)); if(!m) return null;
+    let y=+m[1]; if(m[2]) y+=(+m[2]-1)/12; if(m[3]) y+=(+m[3]-1)/365; return y; }
+
+  function searchMatches(q){
+    q=q.trim().toLowerCase(); if(!q) return [];
+    const out=[], seen=new Set();
+    const push=(o)=>{ const k=o.type+o.id; if(!seen.has(k)){ seen.add(k); out.push(o); } };
+    D.entities.forEach(e=>{ if(e.label.toLowerCase().includes(q)) push({type:"entity",id:e.id,label:e.label,sub:e.kind+" · everything touching it",color:"#6f8aa8",tag:"HUB"}); });
+    D.threads.forEach(t=>{ if(t.complex==="RX") return; if(t.title.toLowerCase().includes(q)||t.id.toLowerCase()===q){ const c=complexById[t.complex]; push({type:"thread",id:t.id,label:t.title,sub:c.label+" · "+(sourceById[srcOf(t.id)]?.speaker||""),color:c.color,tag:t.id}); } });
+    D.nodes.forEach(n=>{ if(n.label.toLowerCase().includes(q)){ const t=threadById[n.thread]; if(t&&t.complex!=="RX") push({type:"thread",id:n.thread,label:t.title,sub:"contains “"+n.label+"”",color:complexById[t.complex].color,tag:t.id}); } });
+    return out.slice(0,12);
+  }
+  function renderResults(list){
+    if(!list.length){ resEl.style.display="none"; return; }
+    resEl.innerHTML=list.map((o,i)=>`<div class="sr${i===0?" sel":""}" data-i="${i}"><span class="tag" style="background:${o.color}">${o.tag}</span><span><span class="t">${o.label}</span><br><span class="s">${o.sub}</span></span></div>`).join("");
+    resEl.style.display="block"; resEl._list=list;
+  }
+  searchEl.addEventListener("input",()=>{ clearEl.style.display=searchEl.value?"block":"none"; renderResults(searchMatches(searchEl.value)); });
+  searchEl.addEventListener("keydown",ev=>{
+    const items=[...resEl.querySelectorAll(".sr")]; if(!items.length) return;
+    let sel=items.findIndex(x=>x.classList.contains("sel"));
+    if(ev.key==="ArrowDown"){ ev.preventDefault(); items[sel]?.classList.remove("sel"); items[Math.min(sel+1,items.length-1)].classList.add("sel"); }
+    else if(ev.key==="ArrowUp"){ ev.preventDefault(); items[sel]?.classList.remove("sel"); items[Math.max(sel-1,0)].classList.add("sel"); }
+    else if(ev.key==="Enter"){ ev.preventDefault(); const o=resEl._list[Math.max(sel,0)]; if(o){ enterFocus(o.type,o.id); } }
+    else if(ev.key==="Escape"){ resEl.style.display="none"; searchEl.blur(); }
+  });
+  resEl.addEventListener("click",ev=>{ const r=ev.target.closest(".sr"); if(r){ const o=resEl._list[+r.dataset.i]; enterFocus(o.type,o.id); } });
+  clearEl.onclick=()=>{ searchEl.value=""; clearEl.style.display="none"; resEl.style.display="none"; searchEl.focus(); };
+  document.addEventListener("click",ev=>{ if(!ev.target.closest("#searchwrap")) resEl.style.display="none"; });
+  document.getElementById("focus-exit").onclick=()=>exitFocus();
+  document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&focus) exitFocus(); });
+
+  function enterFocus(type,id){
+    focus={type,id}; resEl.style.display="none";
+    const lbl = type==="thread" ? threadById[id].title : (entById[id]?entById[id].label:id);
+    const kind = type==="thread" ? "Thread" : "Hub";
+    focusLbl.innerHTML = `Focused ${kind}: <b>${lbl}</b> — reading on a timeline`;
+    focusbar.style.display="flex";
+    if(type==="thread"){ searchEl.value=""; clearEl.style.display="none"; }
+    svg.transition().duration(300).call(zoom.transform,d3.zoomIdentity);
+    renderFocus();
+  }
+  function exitFocusQuiet(){ focus=null; focusbar.style.display="none"; }
+  function exitFocus(){ exitFocusQuiet(); render(); clearSelection();
+    svg.transition().duration(400).call(zoom.transform,d3.zoomIdentity.translate(W*0.06,H*0.04).scale(0.86)); }
+
+  function findDatedNeighbor(n,pos,E){
+    for(const e of E){ let o=null; if(e.from===n.id) o=pos[e.to]; else if(e.to===n.id) o=pos[e.from];
+      if(o && o._x!=null && yearOf(o.date)!=null) return o; }
+    return null;
+  }
+  function renderFocus(){
+    if(sim) sim.stop();
+    W=stage.clientWidth; H=stage.clientHeight; svg.attr("viewBox",[0,0,W,H]);
+    linkG.selectAll("*").remove(); linkLblG.selectAll("*").remove(); nodeG.selectAll("*").remove(); labelG.selectAll("*").remove();
+
+    // gather focused nodes
+    let NF;
+    if(focus.type==="thread") NF=D.nodes.filter(n=>n.thread===focus.id);
+    else NF=D.nodes.filter(n=>(n.entities||[]).includes(focus.id));
+    NF=NF.map(n=>Object.assign({},n,{kind:"claim"}));
+    const pos=Object.fromEntries(NF.map(n=>[n.id,n]));
+    const E=D.edges.filter(e=>pos[e.from]&&pos[e.to]).map(e=>Object.assign({},e));
+
+    const marginL=124, marginR=64, topY=104, axisY=H-56, spineY=Math.round((topY+axisY)/2);
+    const dated=NF.filter(n=>yearOf(n.date)!=null);
+    focusMode = dated.length>0 ? "date":"seq";
+
+    if(focusMode==="date"){
+      let ys=dated.map(n=>yearOf(n.date)); let mn=Math.min(...ys), mx=Math.max(...ys);
+      if(mn===mx){ mn-=2; mx+=2; } const pad=(mx-mn)*0.06+0.4; mn-=pad; mx+=pad;
+      focusScale={mn,mx};
+      const xOf=y=> marginL + (y-mn)/(mx-mn)*(W-marginL-marginR);
+      NF.forEach(n=>{ const y=yearOf(n.date); n._x = y!=null? xOf(y):null; });
+      NF.forEach(n=>{ if(n._x==null){ const par=findDatedNeighbor(n,pos,E); n._x = par? par._x : (W-marginR-30); } });
+    } else {
+      const rank={anchor:0,fact:0,interp:1,framing:2,parked:1};
+      const seq=[...NF].sort((a,b)=>(rank[a.layer]||0)-(rank[b.layer]||0));
+      seq.forEach((n,i)=>{ n._x = marginL + (seq.length>1? i/(seq.length-1):0.5)*(W-marginL-marginR); });
+    }
+    // vertical stacking within columns; interp above spine, framing below
+    const colW=82, cols={}, bias={interp:-1,anchor:0,fact:0,framing:1,parked:1};
+    NF.forEach(n=>{ const c=Math.round(n._x/colW); (cols[c]=cols[c]||[]).push(n); });
+    Object.values(cols).forEach(arr=>{ arr.sort((a,b)=>(bias[a.layer]||0)-(bias[b.layer]||0));
+      const k=arr.length; arr.forEach((n,i)=>{ n._y = spineY + (i-(k-1)/2)*66; }); });
+
+    // axis
+    if(focusMode==="date"){
+      const {mn,mx}=focusScale;
+      linkG.append("line").attr("class","axis-line").attr("x1",marginL-24).attr("y1",axisY).attr("x2",W-marginR+14).attr("y2",axisY);
+      const span=mx-mn, step= span>80?20: span>40?10: span>16?5: span>7?2:1;
+      for(let yr=Math.ceil(mn/step)*step; yr<=mx; yr+=step){
+        const x=marginL+(yr-mn)/(mx-mn)*(W-marginL-marginR);
+        linkG.append("line").attr("class","axis-tick").attr("x1",x).attr("y1",topY-14).attr("x2",x).attr("y2",axisY);
+        linkG.append("text").attr("class","axis-lbl").attr("x",x).attr("y",axisY+16).text(yr);
+      }
+    } else {
+      labelG.append("text").attr("class","lane-hdr").attr("x",marginL-20).attr("y",topY-20).text("Argument order  →  (fact → interpretation → framing)");
+    }
+
+    // edges
+    linkG.selectAll("line.fe").data(E).join("line").attr("class","fe")
+      .attr("x1",e=>pos[e.from]._x).attr("y1",e=>pos[e.from]._y)
+      .attr("x2",e=>pos[e.to]._x).attr("y2",e=>pos[e.to]._y)
+      .attr("stroke",e=> REC.has(e.type)?recColor[e.type]:gradeColor[e.grade]||"#5a6b7f")
+      .attr("stroke-width",e=> REC.has(e.type)?2.4:2.2)
+      .attr("stroke-opacity",.8)
+      .attr("stroke-dasharray",e=> REC.has(e.type)?recDash[e.type]: e.grade==="Weak"?"6 4": (e.grade==="Unwarranted"||e.grade==="NonSequitur")?"2 4":null)
+      .attr("marker-end",e=> REC.has(e.type)?null:"url(#arw-"+e.grade+")");
+
+    // nodes
+    const node=nodeG.selectAll("g.node").data(NF,d=>d.id).join("g").attr("class","node")
+      .attr("transform",d=>`translate(${d._x},${d._y})`)
+      .on("mouseenter",(ev,d)=>showTip(ev,d)).on("mousemove",moveTip).on("mouseleave",hideTip)
+      .on("click",(ev,d)=>{ ev.stopPropagation(); selectFocusNode(d.id); });
+    node.each(function(d){ drawNode(d3.select(this),d); });
+
+    // labels + dates
+    const lab=labelG.selectAll("g.lab").data(NF,d=>d.id).join("g").attr("class","lab")
+      .attr("transform",d=>`translate(${d._x},${d._y})`);
+    lab.append("text").attr("class","node-label").attr("text-anchor","middle").attr("y",-13).text(d=>d.label);
+    lab.filter(d=>d.date).append("text").attr("class","focus-date").attr("text-anchor","middle").attr("y",22).text(d=>d.date);
+
+    // for selection reuse, stash the position map
+    renderFocus._pos=pos; renderFocus._E=E;
+    clearSelection();
+  }
+  function selectFocusNode(id){
+    const pos=renderFocus._pos; if(!pos||!pos[id]) return;
+    const d=pos[id]; selected=id;
+    const keep=new Set([id]);
+    renderFocus._E.forEach(e=>{ if(e.from===id||e.to===id){ keep.add(e.from); keep.add(e.to); } });
+    nodeG.selectAll("g.node").classed("dimmed",n=>!keep.has(n.id));
+    labelG.selectAll("g.lab").classed("dimmed",n=>!keep.has(n.id));
+    linkG.selectAll("line.fe").classed("dimmed",e=>!(e.from===id||e.to===id));
+    renderClaimPanel(nodeById[id]||d);
+  }
 
   // ---- go: start at overview ----
   render();
